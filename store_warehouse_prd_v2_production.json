@@ -1,0 +1,1366 @@
+{
+  "product_name": "Store & Warehouse Supply Management System",
+  "version": "2.0-production",
+  "product_type": "B2B operations platform",
+  "last_updated": "2026-04-12",
+  "status": "production-ready specification",
+  
+  "executive_summary": "A role-based inventory and order management system for internal store refills and third-party bulk supply. Store managers request products on mobile, warehouse packs and dispatches, stores confirm receipt. All stock movements tracked with full audit trail. No pricing, no payroll in MVP. Built for speed, reliability, and offline resilience.",
+
+  "platforms": {
+    "client_apps": ["iOS", "Android", "Next.js (web)"],
+    "app_model": "Single app experience with role-based login and role-specific UI",
+    "backend": "Shared REST API with role-based access control",
+    "database": "PostgreSQL (Neon) with row-level security",
+    "infrastructure": "Hostinger Business + Neon DB"
+  },
+
+  "business_model": {
+    "primary_use_case_1": "Internal store inventory refill (stores request, warehouse fulfills)",
+    "primary_use_case_2": "Bulk supply to third-party stores (admin creates, warehouse fulfills)",
+    "target_users": ["Superadmin", "Warehouse Manager", "Store Manager"],
+    "excluded_from_mvp": ["Payroll/Salary calculation", "Customer CRM", "AI forecasting", "Supplier purchase module"]
+  },
+
+  "goals": [
+    "Provide fast, minimal product listing and inventory system",
+    "Enable store managers to request inventory refills via app",
+    "Prevent overselling with reserved stock model",
+    "Track every stock movement with timestamp, actor, and reason",
+    "Ensure warehouse dispatch + store confirmation two-person approval",
+    "Support bulk orders for third-party clients without pricing",
+    "Maintain offline-first mobile experience with sync-on-reconnect",
+    "Audit all critical actions for compliance and debugging",
+    "Role-based visibility (stores see only their own orders)"
+  ],
+
+  "success_metrics": {
+    "operational": [
+      "Zero overselling incidents (reserved stock prevents)",
+      "100% stock movement auditability",
+      "Sub-2-second API response (p95)",
+      "Order completion in < 4 hours (request → dispatch → receive)",
+      "Mobile app works offline, syncs when connection restored"
+    ],
+    "business": [
+      "More orders processed per day",
+      "Faster warehouse dispatch time",
+      "Reduced stock discrepancies",
+      "Full compliance trail for audits"
+    ]
+  },
+
+  "roles_and_permissions": {
+    "superadmin": {
+      "description": "Full system access across all locations, users, products, orders, and reports.",
+      "visibility": {
+        "data_scope": "All stores, all warehouses, all users, all orders",
+        "dashboard": "Global dashboard with all metrics"
+      },
+      "permissions": {
+        "products": [
+          "View all products",
+          "Create product",
+          "Edit product (title, brand, category, model, color, status, custom_style)",
+          "Delete product (soft delete to preserve history)"
+        ],
+        "inventory": [
+          "View inventory across all locations",
+          "View stock movements (full history)",
+          "Manual stock adjustment (with reason, logged)",
+          "View reserved stock tracking"
+        ],
+        "store_orders": [
+          "View all store order requests",
+          "Approve or reject store order requests",
+          "Cancel orders (with reason)",
+          "View store order history"
+        ],
+        "bulk_orders": [
+          "Create bulk order for any third-party client",
+          "Select client store and products",
+          "View all bulk orders",
+          "Cancel bulk orders (with reason)",
+          "View bulk order history"
+        ],
+        "warehouse_operations": [
+          "View pending warehouse tasks",
+          "Override or reassign warehouse tasks"
+        ],
+        "users_and_access": [
+          "Create user (assign role, location)",
+          "Edit user (role, location, status)",
+          "Deactivate/reactivate user",
+          "Reset user password",
+          "View audit logs"
+        ],
+        "locations": [
+          "Create location (warehouse or store)",
+          "Edit location (name, address, geofence coordinates, radius)",
+          "View all locations"
+        ],
+        "third_party_clients": [
+          "Create third-party store record",
+          "Edit client (name, contact, GST, credit limit)",
+          "Update client status (active/inactive/blocked)"
+        ],
+        "reports": [
+          "View all reports",
+          "Export inventory reports",
+          "Export order reports",
+          "View audit trail"
+        ],
+        "system": [
+          "View system health",
+          "View error logs",
+          "Manage notification settings"
+        ]
+      },
+      "ui_sections": [
+        "Dashboard (global metrics)",
+        "Products",
+        "Inventory (all locations)",
+        "Store Orders (all pending + history)",
+        "Bulk Orders (all pending + history)",
+        "Users",
+        "Locations",
+        "Third-Party Clients",
+        "Reports",
+        "Audit Logs",
+        "Settings"
+      ],
+      "cannot_do": [
+        "Bypass state machine (e.g., mark order complete without store confirmation)",
+        "Edit orders after dispatch (immutable)",
+        "Modify audit logs"
+      ]
+    },
+
+    "warehouse_manager": {
+      "description": "Manages warehouse inventory, dispatch of store refill orders and bulk orders, and stock movement tracking.",
+      "visibility": {
+        "data_scope": "Only their assigned warehouse(s) + pending orders for their warehouse",
+        "dashboard": "Warehouse-specific dashboard (pending orders, low stock, dispatch queue)"
+      },
+      "permissions": {
+        "products": [
+          "View all products (read-only)",
+          "View product availability in their warehouse"
+        ],
+        "inventory": [
+          "View warehouse inventory (their location only)",
+          "View stock movements for their warehouse",
+          "Manual stock adjustment (with reason, logged, approval required from superadmin)",
+          "View reserved stock"
+        ],
+        "store_orders": [
+          "View store orders assigned to their warehouse (pending + history)",
+          "Mark order as 'packed' (ready to ship)",
+          "Mark order as 'dispatched' (shipped out)",
+          "View order details and items",
+          "Cannot create or approve orders"
+        ],
+        "bulk_orders": [
+          "View bulk orders assigned to their warehouse (pending + history)",
+          "Mark bulk order as 'packed'",
+          "Mark bulk order as 'dispatched'",
+          "Cannot create or approve bulk orders"
+        ],
+        "stock_transfer": [
+          "View transfer requests for their warehouse",
+          "Approve or reject transfer requests",
+          "Process approved transfers (update stock)",
+          "Cannot create transfer requests"
+        ],
+        "reports": [
+          "View warehouse inventory report",
+          "View stock movement report",
+          "View order fulfillment report (pending orders, packed, dispatched)",
+          "Cannot access client or user reports"
+        ]
+      },
+      "ui_sections": [
+        "Dashboard (warehouse metrics)",
+        "Inventory (warehouse only)",
+        "Pending Store Orders",
+        "Pending Bulk Orders",
+        "Transfer Requests",
+        "Stock Movements",
+        "Reports"
+      ],
+      "cannot_do": [
+        "Create orders",
+        "View other warehouse's data",
+        "Create products",
+        "Create users",
+        "Approve their own stock adjustments",
+        "Change order status backward (no cancel after dispatch)"
+      ]
+    },
+
+    "store_manager": {
+      "description": "Manages their assigned store's inventory and initiates refill orders. Can request products from warehouse and confirm receipt.",
+      "visibility": {
+        "data_scope": "Only their store's data, their store's orders, their store's inventory",
+        "dashboard": "Store-specific dashboard (their inventory, pending orders, order history)"
+      },
+      "permissions": {
+        "products": [
+          "View all products (read-only)",
+          "View product availability in their store"
+        ],
+        "inventory": [
+          "View their store's inventory (available, reserved, total)",
+          "View stock movements for their store",
+          "Cannot manually adjust stock"
+        ],
+        "store_orders": [
+          "View their store's orders only (pending + history)",
+          "Create new order request (select products, quantities)",
+          "View order details and status",
+          "Mark order as 'store_received' (confirm all items arrived)",
+          "Cannot view other stores' orders"
+        ],
+        "bulk_orders": [
+          "No access (bulk orders are third-party, not for stores)"
+        ],
+        "stock_transfer": [
+          "No access in MVP"
+        ],
+        "reports": [
+          "View their store's inventory report",
+          "View their store's order history"
+        ]
+      },
+      "ui_sections": [
+        "Dashboard (store metrics)",
+        "Inventory (store only)",
+        "Create Order Request (request products from warehouse)",
+        "My Orders (pending + completed)",
+        "Reports (store only)"
+      ],
+      "cannot_do": [
+        "See other stores' data or orders",
+        "Create bulk orders",
+        "Manage users",
+        "View warehouse inventory",
+        "Approve or reject orders",
+        "Manually adjust stock"
+      ]
+    }
+  },
+
+  "core_modules": {
+    "authentication_and_access": {
+      "description": "Role-based login with permission-controlled UI and API access, plus audit trail.",
+      "features": [
+        "Single login system (email + password)",
+        "Role assigned at user creation",
+        "Location assigned to user (store manager → store, warehouse manager → warehouse)",
+        "Role-based dashboard after login",
+        "Permission-based API access (backend enforces, frontend respects)",
+        "Session tokens (JWT, 24-hour expiry)",
+        "Password reset (email-based)",
+        "Account status control (active/inactive/blocked)",
+        "Audit log: all login attempts, successful and failed"
+      ],
+      "production_requirements": [
+        "Passwords hashed with bcrypt (salt rounds: 12)",
+        "Rate limiting: max 5 failed login attempts per IP per minute",
+        "Session timeout: auto-logout after 24 hours or 30 minutes of inactivity",
+        "All login events logged (timestamp, IP, device, success/failure)"
+      ]
+    },
+
+    "product_listing": {
+      "description": "Minimal, fast product listing focused on scannability and quick actions.",
+      "fields": [
+        "id (unique identifier)",
+        "title (e.g., 'Samsung 55-inch Smart TV')",
+        "short_name (e.g., 'TV-55-SM')",
+        "brand (e.g., 'Samsung')",
+        "category (e.g., 'Electronics')",
+        "model (e.g., 'QN55Q80C')",
+        "color (e.g., 'Black')",
+        "sku (e.g., 'SKU-TV-001')",
+        "status (present | inactive | discontinued)",
+        "custom_style (default | premium | featured | sale | catalogue_ready)",
+        "image_url (product photo for list display)",
+        "created_at (timestamp)"
+      ],
+      "status_rules": {
+        "present": "Normal operation, available for order",
+        "inactive": "Hidden from store order UI, warehouse can still see",
+        "discontinued": "Not available for any order, visible in history only"
+      },
+      "ui_layout": [
+        "Image (thumbnail, left side)",
+        "Title + Short Name (bold, top)",
+        "Brand + Category (metadata, gray text)",
+        "Model + Color (specs, gray text)",
+        "Stock indicator (if available in location)",
+        "Status badge (if not 'present')",
+        "Quick action buttons (View, Request [stores], Add to Bulk [admin])"
+      ],
+      "list_behaviors": {
+        "search": "By title, brand, model, short_name, sku",
+        "filter": "By category, brand, status, custom_style",
+        "sort": "By newest, alphabetical, stock level",
+        "pagination": "50 items per page, lazy load on scroll"
+      ],
+      "permissions": {
+        "superadmin": "Full CRUD on products",
+        "warehouse_manager": "View only",
+        "store_manager": "View only"
+      },
+      "production_requirements": [
+        "Image CDN (resize to 300x300 for mobile list)",
+        "Search response < 500ms (indexed on title, brand, model)",
+        "List load < 2 seconds (p95)",
+        "Soft delete products (preserve history)"
+      ]
+    },
+
+    "inventory_management": {
+      "description": "Track stock by location with reserved stock to prevent overselling.",
+      "stock_model": {
+        "total_stock": "Physical inventory count",
+        "reserved_stock": "Locked by confirmed orders (pending dispatch)",
+        "available_stock": "total_stock - reserved_stock (what can be ordered)",
+        "issued_stock": "Shipped and confirmed received"
+      },
+      "rules": [
+        "Warehouse is master stock source",
+        "Store stock can only increase via warehouse dispatch",
+        "Reserved stock cannot be sold or transferred again",
+        "available_stock must never go negative",
+        "All stock changes logged with timestamp, actor, reason"
+      ],
+      "features": [
+        "View inventory per product per location",
+        "View available vs reserved vs total",
+        "Manual stock adjustment (superadmin with reason + approval log)",
+        "Low stock alert (configurable threshold per product)",
+        "Stock movement history (queryable by date, actor, location, product)",
+        "Inventory sync across app and web"
+      ],
+      "api_contract": {
+        "GET /inventory?location_id&product_id": "Return available, reserved, total",
+        "GET /inventory/movements?location_id&date_from&date_to": "Return all movements",
+        "POST /inventory/adjust": "Superadmin only, create audit entry",
+        "GET /inventory/low-stock": "List products below threshold"
+      },
+      "production_requirements": [
+        "Database constraint: reserved_stock ≤ total_stock",
+        "Database constraint: available_stock ≥ 0",
+        "Row-level locks during stock operations (prevent race conditions)",
+        "Transaction timeout: 30 seconds max",
+        "Cache inventory locally on mobile (TTL: 5 minutes)",
+        "Sync on reconnect if offline"
+      ]
+    },
+
+    "store_order_request": {
+      "description": "Store managers request inventory refill from warehouse on mobile app.",
+      "workflow": [
+        "Store Manager: Opens 'Create Order Request'",
+        "Store Manager: Searches and selects products (e.g., 5x Samsung TV)",
+        "Store Manager: System validates: available_stock ≥ requested qty",
+        "Store Manager: Submits request (status: 'draft')",
+        "System: Superadmin can review pending requests",
+        "Superadmin: Approves request (status: 'confirmed', creates reservation)",
+        "System: Reserved stock locked (warehouse available ↓)",
+        "Warehouse Manager: Sees pending order in 'Dispatch Queue'",
+        "Warehouse Manager: Packs items, marks 'packed' (status: 'packed')",
+        "Warehouse Manager: Ships items, marks 'dispatched' (status: 'dispatched')",
+        "Warehouse Manager: Generates shipping label (order_id)",
+        "Store Manager: Receives notification 'Order dispatched, confirmation needed'",
+        "Store Manager: Opens app, sees order, inspects physical items",
+        "Store Manager: Confirms 'All items received' (status: 'store_received')",
+        "System: Updates inventory (warehouse stock ↓, store stock ↑, reserved ↓)",
+        "System: Order marked 'completed', audit trail closed"
+      ],
+      "statuses": {
+        "draft": "Store created, pending superadmin approval",
+        "confirmed": "Superadmin approved, stock reserved",
+        "packed": "Warehouse packed items",
+        "dispatched": "Warehouse shipped, awaiting store confirmation",
+        "store_received": "Store confirmed receipt, inventory updated",
+        "completed": "Order finalized, all stock movements done"
+      ],
+      "fields": [
+        "id (database ID)",
+        "order_id (human-readable, e.g., 'ORD-ST01-20260412-0001')",
+        "store_id (requesting store)",
+        "warehouse_id (fulfilling warehouse)",
+        "status (see statuses above)",
+        "items (array of {product_id, qty, status})",
+        "reserved_amount (qty locked)",
+        "created_by (store manager user_id)",
+        "approved_by (superadmin user_id, nullable if not approved)",
+        "dispatched_at (timestamp when warehouse marks dispatched)",
+        "received_at (timestamp when store confirms received)",
+        "created_at, updated_at"
+      ],
+      "permissions": {
+        "store_manager": "Create (their own store only), View own orders, Mark as received",
+        "superadmin": "View all, Approve/Reject, Cancel, View audit trail",
+        "warehouse_manager": "View assigned warehouse orders, Mark as packed/dispatched"
+      },
+      "production_requirements": [
+        "Idempotency key on creation (prevent duplicate orders on mobile retry)",
+        "State machine enforcement (only valid transitions allowed)",
+        "Validation: qty ≤ available_stock before approval",
+        "Notification: Warehouse alerted when approved",
+        "Notification: Store alerted when dispatched (push + in-app)",
+        "Timeout alert: If store doesn't confirm within 24 hours, escalate to superadmin"
+      ]
+    },
+
+    "bulk_order_management": {
+      "description": "Superadmin creates orders for third-party client stores. No pricing, no payment tracking.",
+      "workflow": [
+        "Superadmin: Selects third-party client store from list",
+        "Superadmin: Searches products, selects qty (e.g., 10x Samsung TV, 5x LG Fridge)",
+        "System: Validates warehouse has available_stock ≥ requested qty",
+        "Superadmin: Submits bulk order (status: 'draft')",
+        "System: No approval needed (superadmin creates = approved)",
+        "System: Status changed to 'confirmed', stock reserved",
+        "Warehouse Manager: Sees order in 'Bulk Order Queue'",
+        "Warehouse Manager: Packs items, marks 'packed'",
+        "Warehouse Manager: Ships items, marks 'dispatched'",
+        "System: No store confirmation needed (client handles externally)",
+        "System: Inventory updated, order marked 'completed'"
+      ],
+      "statuses": {
+        "draft": "Created but not yet confirmed",
+        "confirmed": "Stock reserved, ready to pack",
+        "packed": "Warehouse packed items",
+        "dispatched": "Warehouse shipped",
+        "completed": "Stock deducted, order finalized"
+      ],
+      "fields": [
+        "id (database ID)",
+        "order_id (e.g., 'BULK-WH01-20260412-0007')",
+        "client_store_id (third-party client)",
+        "warehouse_id (source warehouse)",
+        "status (see statuses above)",
+        "items (array of {product_id, qty})",
+        "reserved_amount (qty locked)",
+        "created_by (superadmin user_id)",
+        "dispatched_at (timestamp)",
+        "created_at, updated_at"
+      ],
+      "permissions": {
+        "superadmin": "Create, View all, Cancel, View audit trail",
+        "warehouse_manager": "View assigned orders, Mark as packed/dispatched",
+        "store_manager": "No access"
+      },
+      "production_requirements": [
+        "Idempotency key on creation",
+        "State machine enforcement",
+        "Validation: qty ≤ available_stock",
+        "No pricing fields (kept simple for MVP)",
+        "Notification: Warehouse alerted when created"
+      ]
+    },
+
+    "third_party_client_management": {
+      "description": "Client records for third-party stores receiving bulk supply.",
+      "fields": [
+        "id (unique identifier)",
+        "store_name (e.g., 'ABC Retail Store')",
+        "owner_name (contact person)",
+        "phone (contact number)",
+        "email (contact email)",
+        "address (delivery address)",
+        "gst_number (for invoice, if needed later)",
+        "status (active | inactive | blocked)",
+        "created_at, updated_at"
+      ],
+      "permissions": {
+        "superadmin": "Create, Edit, View all, Change status",
+        "warehouse_manager": "View (read-only)",
+        "store_manager": "No access"
+      },
+      "production_requirements": [
+        "Email and phone uniqueness (prevent duplicates)",
+        "Status change logs (who changed it, when)"
+      ]
+    },
+
+    "stock_transfer": {
+      "description": "Movement of items between warehouse and stores (MVP: warehouse-initiated transfers only).",
+      "note": "Store-to-warehouse and store-to-store transfers can be added in v2.1.",
+      "workflow": [
+        "Warehouse Manager: Initiates transfer (from warehouse to specific store)",
+        "Warehouse Manager: Selects products and quantities",
+        "System: Validates warehouse available_stock ≥ qty",
+        "Warehouse Manager: Creates transfer (status: 'pending')",
+        "Store Manager: Receives notification 'Transfer in transit'",
+        "Warehouse Manager: Ships items, marks 'in_transit'",
+        "Store Manager: Receives items, marks 'completed'",
+        "System: Updates inventory (warehouse ↓, store ↑)"
+      ],
+      "statuses": [
+        "pending (created, awaiting dispatch)",
+        "in_transit (shipped)",
+        "completed (received)",
+        "rejected (store declined)",
+        "cancelled (superadmin cancelled)"
+      ],
+      "fields": [
+        "id, transfer_id (human-readable)",
+        "product_id, from_location_id, to_location_id",
+        "quantity, status",
+        "requested_by, approved_by, completed_by",
+        "created_at, updated_at"
+      ],
+      "permissions": {
+        "warehouse_manager": "Create transfers from their warehouse, mark as in_transit",
+        "store_manager": "View transfers to their store, mark as completed",
+        "superadmin": "View all, cancel transfers, view audit"
+      ],
+      "production_requirements": [
+        "State machine enforcement",
+        "Validation: qty ≤ available_stock before creation",
+        "Notification system for store managers"
+      ]
+    },
+
+    "dashboard_and_metrics": {
+      "description": "Role-specific dashboards with operational summaries.",
+      "superadmin_dashboard": {
+        "widgets": [
+          "Orders: Pending store orders, pending bulk orders, today's dispatches",
+          "Inventory: Low stock alert, product count, warehouse stock snapshot",
+          "Operations: Users online, locations active, recent actions (audit log)"
+        ]
+      },
+      "warehouse_manager_dashboard": {
+        "widgets": [
+          "Pending Orders: Store refill orders, bulk orders (both in 'confirmed' or 'packed' status)",
+          "Inventory: Low stock items for their warehouse",
+          "Dispatch Queue: Orders ready to ship",
+          "Performance: Orders packed today, dispatch time trend"
+        ]
+      },
+      "store_manager_dashboard": {
+        "widgets": [
+          "My Inventory: Total stock, available vs reserved breakdown",
+          "My Orders: Pending requests, in-progress orders, completed orders",
+          "Alerts: Stock running low, orders needing confirmation"
+        ]
+      },
+      "production_requirements": [
+        "Dashboard data cached (update every 30 seconds, configurable)",
+        "Mobile-optimized layout (avoid horizontal scroll)",
+        "Load time < 2 seconds"
+      ]
+    },
+
+    "order_id_generation": {
+      "description": "Human-readable, unique, printable order IDs.",
+      "format_store_order": "ORD-{LOCATION_CODE}-{DATE}-{INCREMENTAL}",
+      "format_bulk_order": "BULK-{LOCATION_CODE}-{DATE}-{INCREMENTAL}",
+      "examples": [
+        "ORD-ST01-20260412-0001 (Store order from location ST01 on April 12, 2026, first order)",
+        "BULK-WH01-20260412-0007 (Bulk order from warehouse WH01 on April 12, 2026, seventh bulk order)"
+      ],
+      "rules": [
+        "Location code assigned during location setup (ST01 for store 1, WH01 for warehouse 1)",
+        "Date in YYYYMMDD format",
+        "Incremental number reset daily (or use hourly+minute for high volume)",
+        "Must be globally unique (database constraint)"
+      ],
+      "implementation": [
+        "Database trigger or application-level generation",
+        "Verify uniqueness before assigning",
+        "Index on order_id for fast lookup"
+      ]
+    },
+
+    "notifications": {
+      "description": "Async notifications for critical events, resilient with retry logic.",
+      "channels": ["in-app", "push_notification", "email"],
+      "events": {
+        "store_order_confirmed": {
+          "trigger": "Superadmin approves store order",
+          "recipients": ["warehouse_manager"],
+          "message": "Store order ORD-ST01-20260412-0001 ready to pack (5x Samsung TV)",
+          "action": "View in dispatch queue"
+        },
+        "order_dispatched": {
+          "trigger": "Warehouse marks order as dispatched",
+          "recipients": ["store_manager"],
+          "message": "Your order ORD-ST01-20260412-0001 is on the way. Please confirm receipt.",
+          "action": "Open order to confirm"
+        },
+        "order_unconfirmed_24h": {
+          "trigger": "Order in 'dispatched' for 24+ hours, no confirmation",
+          "recipients": ["superadmin"],
+          "message": "Order ORD-ST01-20260412-0001 awaiting store confirmation for 24 hours",
+          "action": "Follow up with store"
+        },
+        "low_stock_alert": {
+          "trigger": "Product stock below threshold",
+          "recipients": ["warehouse_manager"],
+          "message": "Samsung 55-inch TV stock low (2 units remaining)",
+          "action": "View inventory"
+        },
+        "bulk_order_created": {
+          "trigger": "Superadmin creates bulk order",
+          "recipients": ["warehouse_manager"],
+          "message": "Bulk order BULK-WH01-20260412-0007 for ABC Retail Store (10x TV, 5x Fridge)",
+          "action": "View in queue"
+        }
+      },
+      "production_requirements": [
+        "Use job queue (e.g., Bull on Redis or database-backed queue)",
+        "Retry failed notifications: 3 attempts with exponential backoff (5s, 30s, 2m)",
+        "Log all notification attempts (for debugging)",
+        "Prevent duplicate notifications (idempotency key)",
+        "In-app notifications persistent until read",
+        "Email rate limit: max 1 email per user per event per hour",
+        "Push notifications require user opt-in"
+      ]
+    }
+  },
+
+  "data_entities": {
+    "users": {
+      "fields": [
+        "id (uuid, primary key)",
+        "email (unique, required)",
+        "password_hash (bcrypt, never returned)",
+        "name (full name)",
+        "phone (optional)",
+        "role (superadmin | warehouse_manager | store_manager)",
+        "location_id (foreign key to locations table)",
+        "status (active | inactive | blocked)",
+        "last_login_at (timestamp)",
+        "created_at, updated_at"
+      ],
+      "constraints": [
+        "email UNIQUE",
+        "phone UNIQUE (if provided)",
+        "role IN ('superadmin', 'warehouse_manager', 'store_manager')",
+        "status IN ('active', 'inactive', 'blocked')",
+        "superadmin must not have location_id (or location_id = null)"
+      ],
+      "indexes": ["email", "role", "location_id", "status"],
+      "permissions": {
+        "create": "superadmin only",
+        "edit": "superadmin only",
+        "view": "superadmin (all), warehouse_manager (their warehouse users only), store_manager (cannot view other users)"
+      }
+    },
+
+    "locations": {
+      "fields": [
+        "id (uuid, primary key)",
+        "name (e.g., 'Main Warehouse' or 'Store 01')",
+        "type (warehouse | store)",
+        "address (full address)",
+        "geo_lat (latitude for geofence center)",
+        "geo_lng (longitude for geofence center)",
+        "geofence_radius (in meters, e.g., 100m)",
+        "location_code (e.g., 'WH01', 'ST01' for order IDs)",
+        "status (active | inactive)",
+        "created_at, updated_at"
+      ],
+      "constraints": [
+        "location_code UNIQUE",
+        "type IN ('warehouse', 'store')",
+        "geofence_radius > 0"
+      ],
+      "indexes": ["type", "status", "location_code"],
+      "permissions": {
+        "create": "superadmin only",
+        "edit": "superadmin only",
+        "view": "superadmin (all), warehouse_manager (their locations only), store_manager (their location only)"
+      }
+    },
+
+    "products": {
+      "fields": [
+        "id (uuid, primary key)",
+        "title (required, e.g., 'Samsung 55-inch Smart TV')",
+        "short_name (required, e.g., 'TV-55-SM')",
+        "sku (unique, e.g., 'SKU-TV-001')",
+        "brand (e.g., 'Samsung')",
+        "category (e.g., 'Electronics')",
+        "model (e.g., 'QN55Q80C')",
+        "color (e.g., 'Black')",
+        "status (present | inactive | discontinued)",
+        "custom_style (default | premium | featured | sale | catalogue_ready)",
+        "image_url (CDN URL, resized to 300x300)",
+        "created_at, updated_at",
+        "deleted_at (soft delete, nullable)"
+      ],
+      "constraints": [
+        "sku UNIQUE",
+        "status IN ('present', 'inactive', 'discontinued')",
+        "custom_style IN ('default', 'premium', 'featured', 'sale', 'catalogue_ready')",
+        "title NOT NULL",
+        "brand NOT NULL"
+      ],
+      "indexes": ["title", "brand", "model", "sku", "status", "category"],
+      "permissions": {
+        "create": "superadmin only",
+        "edit": "superadmin only",
+        "view": "all roles",
+        "soft_delete": "superadmin only (preserve history)"
+      }
+    },
+
+    "inventory": {
+      "fields": [
+        "id (uuid, primary key)",
+        "product_id (foreign key to products)",
+        "location_id (foreign key to locations)",
+        "total_stock (current physical count, ≥ 0)",
+        "reserved_stock (locked by confirmed orders, ≤ total_stock)",
+        "issued_stock (shipped and confirmed, cumulative)",
+        "updated_at (last change timestamp)"
+      ],
+      "constraints": [
+        "UNIQUE (product_id, location_id)",
+        "total_stock ≥ 0",
+        "reserved_stock ≥ 0",
+        "reserved_stock ≤ total_stock",
+        "total_stock ≥ reserved_stock"
+      ],
+      "derived_fields": [
+        "available_stock = total_stock - reserved_stock"
+      ],
+      "indexes": ["product_id", "location_id", "updated_at"],
+      "permissions": {
+        "view": "superadmin (all), warehouse_manager (their warehouse), store_manager (their store)",
+        "update": "only via stock movement events (never direct update)"
+      }
+    },
+
+    "stock_movements": {
+      "fields": [
+        "id (uuid, primary key)",
+        "product_id (foreign key to products)",
+        "from_location_id (foreign key to locations, nullable if external in)",
+        "to_location_id (foreign key to locations)",
+        "quantity (number moved, > 0)",
+        "movement_type (order_reserved | order_deducted | order_issued | transfer | manual_adjustment)",
+        "reference_type (store_order | bulk_order | transfer_request | manual | system)",
+        "reference_id (order_id or transfer_id, foreign key)",
+        "reason (text, for manual adjustments)",
+        "created_by (user_id)",
+        "created_at (timestamp, immutable)"
+      ],
+      "constraints": [
+        "quantity > 0",
+        "movement_type IN ('order_reserved', 'order_deducted', 'order_issued', 'transfer', 'manual_adjustment')",
+        "created_at NOT NULL"
+      ],
+      "indexes": ["product_id", "from_location_id", "to_location_id", "created_at", "reference_type"],
+      "immutability": "Movements are immutable. Never updated or deleted. Always appended.",
+      "permissions": {
+        "view": "superadmin (all), warehouse_manager (their warehouse movements), store_manager (their store movements)",
+        "create": "system (automatic) or superadmin (manual adjustment)"
+      }
+    },
+
+    "store_orders": {
+      "fields": [
+        "id (uuid, primary key)",
+        "order_id (unique, human-readable, e.g., 'ORD-ST01-20260412-0001')",
+        "store_id (foreign key to locations where type='store')",
+        "warehouse_id (foreign key to locations where type='warehouse')",
+        "status (draft | confirmed | packed | dispatched | store_received | completed | cancelled)",
+        "items (jsonb array of {product_id, qty, status})",
+        "reserved_amount (sum of quantities reserved)",
+        "created_by (user_id, store manager)",
+        "approved_by (user_id, superadmin, nullable until approved)",
+        "dispatch_notes (optional text from warehouse)",
+        "dispatched_at (timestamp when marked dispatched, nullable)",
+        "received_at (timestamp when store confirms, nullable)",
+        "created_at, updated_at"
+      ],
+      "constraints": [
+        "order_id UNIQUE",
+        "status IN ('draft', 'confirmed', 'packed', 'dispatched', 'store_received', 'completed', 'cancelled')",
+        "store_id != warehouse_id",
+        "reserved_amount ≥ 0"
+      ],
+      "indexes": ["order_id", "store_id", "warehouse_id", "status", "created_at"],
+      "permissions": {
+        "create": "store_manager (their store only)",
+        "approve": "superadmin only (draft → confirmed)",
+        "pack": "warehouse_manager (their warehouse only)",
+        "dispatch": "warehouse_manager (their warehouse only)",
+        "receive": "store_manager (their store only, when status='dispatched')",
+        "cancel": "superadmin only (until 'dispatched')",
+        "view": "superadmin (all), warehouse_manager (their warehouse), store_manager (their store only)"
+      }
+    },
+
+    "bulk_orders": {
+      "fields": [
+        "id (uuid, primary key)",
+        "order_id (unique, human-readable, e.g., 'BULK-WH01-20260412-0007')",
+        "client_store_id (foreign key to client_stores)",
+        "warehouse_id (foreign key to locations where type='warehouse')",
+        "status (draft | confirmed | packed | dispatched | completed | cancelled)",
+        "items (jsonb array of {product_id, qty})",
+        "reserved_amount (sum of quantities reserved)",
+        "created_by (user_id, superadmin)",
+        "dispatch_notes (optional text from warehouse)",
+        "dispatched_at (timestamp when marked dispatched, nullable)",
+        "created_at, updated_at"
+      ],
+      "constraints": [
+        "order_id UNIQUE",
+        "status IN ('draft', 'confirmed', 'packed', 'dispatched', 'completed', 'cancelled')",
+        "reserved_amount ≥ 0"
+      ],
+      "indexes": ["order_id", "client_store_id", "warehouse_id", "status", "created_at"],
+      "permissions": {
+        "create": "superadmin only (auto-confirms on creation)",
+        "pack": "warehouse_manager (their warehouse only)",
+        "dispatch": "warehouse_manager (their warehouse only)",
+        "cancel": "superadmin only (until 'dispatched')",
+        "view": "superadmin (all), warehouse_manager (their warehouse)"
+      }
+    },
+
+    "order_items": {
+      "fields": [
+        "id (uuid, primary key)",
+        "order_id (foreign key to store_orders or bulk_orders)",
+        "product_id (foreign key to products)",
+        "quantity (number ordered, > 0)",
+        "status (pending | packed | dispatched | received | cancelled)",
+        "created_at"
+      ],
+      "constraints": [
+        "quantity > 0",
+        "status IN ('pending', 'packed', 'dispatched', 'received', 'cancelled')"
+      ],
+      "indexes": ["order_id", "product_id", "status"],
+      "permissions": {
+        "view": "based on order permissions"
+      }
+    },
+
+    "client_stores": {
+      "fields": [
+        "id (uuid, primary key)",
+        "store_name (required, e.g., 'ABC Retail Store')",
+        "owner_name (contact person name)",
+        "phone (contact phone, unique)",
+        "email (contact email, unique)",
+        "address (delivery address)",
+        "gst_number (optional, for future invoicing)",
+        "status (active | inactive | blocked)",
+        "created_at, updated_at"
+      ],
+      "constraints": [
+        "store_name NOT NULL",
+        "phone UNIQUE",
+        "email UNIQUE",
+        "status IN ('active', 'inactive', 'blocked')"
+      ],
+      "indexes": ["store_name", "status", "created_at"],
+      "permissions": {
+        "create": "superadmin only",
+        "edit": "superadmin only",
+        "view": "superadmin (all), warehouse_manager (read-only)"
+      }
+    },
+
+    "transfer_requests": {
+      "fields": [
+        "id (uuid, primary key)",
+        "transfer_id (unique, human-readable)",
+        "product_id (foreign key to products)",
+        "from_location_id (foreign key to locations)",
+        "to_location_id (foreign key to locations)",
+        "quantity (> 0)",
+        "status (pending | in_transit | completed | rejected | cancelled)",
+        "requested_by (user_id)",
+        "approved_by (user_id, nullable)",
+        "created_at, updated_at"
+      ],
+      "constraints": [
+        "transfer_id UNIQUE",
+        "from_location_id != to_location_id",
+        "quantity > 0",
+        "status IN ('pending', 'in_transit', 'completed', 'rejected', 'cancelled')"
+      ],
+      "indexes": ["transfer_id", "from_location_id", "to_location_id", "status"],
+      "permissions": {
+        "create": "warehouse_manager (from_location must be their warehouse)",
+        "approve": "warehouse_manager (their warehouse)",
+        "complete": "store_manager (to_location must be their store)",
+        "view": "based on location access"
+      }
+    },
+
+    "audit_logs": {
+      "fields": [
+        "id (uuid, primary key)",
+        "actor_user_id (user_id of who performed action)",
+        "action (create | update | delete | approve | dispatch | confirm_receive | cancel)",
+        "entity_type (user | product | order | inventory | transfer)",
+        "entity_id (foreign key to entity)",
+        "before_value (jsonb, previous state if applicable)",
+        "after_value (jsonb, new state if applicable)",
+        "details (text description)",
+        "ip_address (for security audit)",
+        "user_agent (device/browser info)",
+        "request_id (correlation ID for tracing)",
+        "success (boolean)",
+        "error_message (if failed, nullable)",
+        "created_at (timestamp)"
+      ],
+      "constraints": [
+        "created_at NOT NULL",
+        "actor_user_id NOT NULL"
+      ],
+      "indexes": ["actor_user_id", "entity_type", "entity_id", "created_at", "request_id"],
+      "immutability": "Audit logs are immutable, never updated or deleted.",
+      "permissions": {
+        "view": "superadmin only",
+        "create": "system only (automatic)"
+      }
+    }
+  },
+
+  "workflows": {
+    "store_order_complete_flow": [
+      "1. Store Manager: Opens app, navigates to 'Create Order Request'",
+      "2. Store Manager: Searches products (e.g., 'Samsung TV')",
+      "3. Store Manager: Selects product, enters qty (system validates: available_stock ≥ qty)",
+      "4. Store Manager: Adds more items if needed",
+      "5. Store Manager: Reviews order summary, confirms submission",
+      "6. System: Creates order with status='draft', generates order_id (e.g., ORD-ST01-20260412-0001)",
+      "7. System: Audit log created (store_manager created order)",
+      "8. Superadmin: Receives notification 'New order request from Store 01'",
+      "9. Superadmin: Reviews order in web dashboard",
+      "10. Superadmin: Clicks 'Approve', confirms",
+      "11. System: Status → 'confirmed', stock reserved (available_stock ↓, reserved_stock ↑)",
+      "12. System: Creates stock_movement (type='order_reserved')",
+      "13. System: Warehouse Manager notified 'Order ORD-ST01-20260412-0001 ready to pack'",
+      "14. Warehouse Manager: Opens app, sees order in 'Dispatch Queue'",
+      "15. Warehouse Manager: Scans product barcodes, confirms items match",
+      "16. Warehouse Manager: Clicks 'Mark as Packed', enters dispatch notes (optional)",
+      "17. System: Status → 'packed', audit log created",
+      "18. Warehouse Manager: Prints shipping label (order_id barcode)",
+      "19. Warehouse Manager: Ships items, clicks 'Mark as Dispatched'",
+      "20. System: Status → 'dispatched', timestamp recorded",
+      "21. System: Creates stock_movement (type='order_deducted')",
+      "22. System: Store Manager receives push notification 'Order dispatched, confirmation needed'",
+      "23. Store Manager: Opens app, sees order in 'My Orders' with status='dispatched'",
+      "24. Store Manager: Physically receives items from delivery",
+      "25. Store Manager: Opens app, clicks order, verifies items match (qty + product)",
+      "26. Store Manager: Clicks 'Confirm Receipt', confirms",
+      "27. System: Status → 'store_received', timestamp recorded",
+      "28. System: Creates stock_movement (type='order_issued', warehouse ↓, store ↑)",
+      "29. System: Updates inventory (warehouse: available↓, store: available↑)",
+      "30. System: Status → 'completed', order finalized",
+      "31. System: Audit log closed, all movements logged"
+    ],
+
+    "bulk_order_complete_flow": [
+      "1. Superadmin: Opens web app, navigates to 'Create Bulk Order'",
+      "2. Superadmin: Selects third-party client store (e.g., 'ABC Retail Store')",
+      "3. Superadmin: Searches products, adds items and quantities (e.g., 10x Samsung TV, 5x LG Fridge)",
+      "4. System: Validates warehouse available_stock ≥ qty for each item",
+      "5. Superadmin: Reviews order summary, confirms submission",
+      "6. System: Creates order with status='draft', generates order_id (e.g., 'BULK-WH01-20260412-0007')",
+      "7. System: Auto-confirms (status → 'confirmed'), reserves stock",
+      "8. System: Warehouse Manager notified 'Bulk order BULK-WH01-20260412-0007 for ABC Retail Store'",
+      "9. Warehouse Manager: Views order in 'Bulk Order Queue'",
+      "10. Warehouse Manager: Picks and packs items",
+      "11. Warehouse Manager: Clicks 'Mark as Packed'",
+      "12. System: Status → 'packed'",
+      "13. Warehouse Manager: Ships items, clicks 'Mark as Dispatched'",
+      "14. System: Status → 'dispatched', stock deducted (inventory updated)",
+      "15. System: Status → 'completed', order finalized",
+      "16. No store confirmation needed (third-party handles externally)"
+    ],
+
+    "transfer_request_flow": [
+      "1. Warehouse Manager: Initiates warehouse-to-store transfer",
+      "2. Warehouse Manager: Selects product, quantity, destination store",
+      "3. System: Validates warehouse available_stock ≥ qty",
+      "4. Warehouse Manager: Submits, system creates transfer_id",
+      "5. System: Status → 'pending', audit logged",
+      "6. Store Manager (receiving): Notified 'Transfer in transit to your store'",
+      "7. Warehouse Manager: Packs items, clicks 'Mark as In Transit'",
+      "8. System: Status → 'in_transit'",
+      "9. Warehouse Manager: Ships items",
+      "10. Store Manager: Receives items, clicks 'Confirm Complete'",
+      "11. System: Status → 'completed', inventory updated (warehouse ↓, store ↑)",
+      "12. Audit log closed"
+    ]
+  },
+
+  "business_rules": [
+    "Reserved stock created on order confirmation, locked until dispatch",
+    "Reserved stock cannot be used in another order",
+    "Discontinued products cannot be ordered (backend validation)",
+    "Inactive products hidden from store order UI",
+    "Every stock movement creates immutable audit entry",
+    "Every order must have unique, printable order_id",
+    "Warehouse stock is master source (stores receive from warehouse only)",
+    "Store managers can only see their own store's data and orders",
+    "Warehouse managers can only see their assigned warehouse(s)",
+    "Superadmin cannot be assigned to a location (superadmin = global access)",
+    "Store orders require superadmin approval before warehouse packs",
+    "Bulk orders auto-confirmed by superadmin on creation",
+    "No pricing in MVP (removed from spec)",
+    "No payroll in MVP (removed from spec)",
+    "All critical actions logged: create, approve, dispatch, receive, cancel",
+    "State machine enforcement: only valid status transitions allowed",
+    "Idempotency enforced on order creation (prevent duplicate orders on mobile retry)"
+  ],
+
+  "production_readiness": {
+    "idempotency_and_safety": {
+      "description": "Prevent duplicate state changes from network retries or duplicate requests",
+      "implementation": [
+        "Every API request gets unique idempotency_key (uuid)",
+        "Client generates idempotency_key on mobile (or server generates if web)",
+        "Server stores (idempotency_key, response) in cache (Redis, 24-hour TTL)",
+        "If same idempotency_key received again, return cached response",
+        "Never execute action twice"
+      ],
+      "critical_endpoints": [
+        "POST /orders (store order creation)",
+        "POST /bulk-orders (bulk order creation)",
+        "PATCH /orders/:id/approve (superadmin approval)",
+        "PATCH /orders/:id/dispatch (warehouse dispatch)",
+        "PATCH /orders/:id/confirm-receive (store receive confirmation)"
+      ]
+    },
+
+    "inventory_locking": {
+      "description": "Prevent overselling from concurrent requests",
+      "implementation": [
+        "Use database row-level locks (PostgreSQL FOR UPDATE)",
+        "On order approval: SELECT inventory FOR UPDATE, validate available_stock, update reserved_stock",
+        "On order dispatch: SELECT inventory FOR UPDATE, validate reserved_stock, deduct total_stock",
+        "Transaction timeout: 30 seconds max",
+        "Log timeout errors for debugging"
+      ]
+    },
+
+    "audit_trail": {
+      "description": "Complete history of all state changes for compliance",
+      "logged_events": [
+        "User login (success, failure, IP, timestamp)",
+        "User role change",
+        "Product create/edit/delete",
+        "Order create/approve/dispatch/receive/cancel",
+        "Stock adjustment (with reason)",
+        "Location create/edit",
+        "Client store create/edit",
+        "Permission denied events"
+      ],
+      "audit_retention": "Indefinite (never delete)"
+    },
+
+    "state_machine_enforcement": {
+      "description": "Only allow valid status transitions",
+      "store_order_transitions": {
+        "draft": ["confirmed"],
+        "confirmed": ["packed"],
+        "packed": ["dispatched"],
+        "dispatched": ["store_received"],
+        "store_received": ["completed"],
+        "any_state": ["cancelled"]
+      },
+      "bulk_order_transitions": {
+        "confirmed": ["packed"],
+        "packed": ["dispatched"],
+        "dispatched": ["completed"],
+        "any_state": ["cancelled"]
+      },
+      "enforcement": [
+        "Validate on backend before state change",
+        "Return 400 (bad request) if invalid transition",
+        "Log all invalid attempts"
+      ]
+    },
+
+    "offline_resilience": {
+      "description": "Mobile app works offline, syncs when reconnected",
+      "implementation": [
+        "Cache inventory locally on mobile (SQLite, 5-minute TTL)",
+        "Queue store order requests locally if offline",
+        "Queue order confirmations locally if offline",
+        "On reconnect: sync queued actions with conflict detection",
+        "Conflict resolution: warehouse dispatch timestamp wins (source of truth)"
+      ]
+    },
+
+    "error_handling": {
+      "description": "Graceful failures with clear error messages",
+      "http_status_codes": {
+        "400": "Bad request (validation failed, insufficient stock)",
+        "401": "Unauthorized (not logged in)",
+        "403": "Forbidden (no permission for this action)",
+        "404": "Not found (order, product, location doesn't exist)",
+        "409": "Conflict (inventory locked, concurrent edit)",
+        "429": "Too many requests (rate limit exceeded)",
+        "500": "Internal server error (log and alert)"
+      ],
+      "error_response_format": {
+        "code": "ERROR_CODE (e.g., INSUFFICIENT_STOCK)",
+        "message": "Human-readable error message",
+        "details": "Optional additional context"
+      }
+    },
+
+    "notifications": {
+      "critical_events": [
+        "order_confirmed (warehouse)",
+        "order_dispatched (store)",
+        "order_unconfirmed_24h (superadmin)",
+        "low_stock_alert (warehouse)",
+        "bulk_order_created (warehouse)"
+      ],
+      "implementation": [
+        "Use job queue with retry logic",
+        "Retry failed notifications 3 times (5s, 30s, 2m backoff)",
+        "Log all notification attempts",
+        "In-app notifications persistent until read"
+      ]
+    },
+
+    "performance_targets": {
+      "api_response_time": "< 2 seconds (p95)",
+      "list_load_time": "< 2 seconds for 50 items",
+      "search_response": "< 500ms",
+      "mobile_app_startup": "< 3 seconds",
+      "sync_time_on_reconnect": "< 30 seconds"
+    },
+
+    "security": {
+      "authentication": [
+        "Email + password login",
+        "Passwords hashed with bcrypt (salt rounds: 12)",
+        "JWT tokens (24-hour expiry)",
+        "Rate limit: 5 failed login attempts per IP per minute"
+      ],
+      "authorization": [
+        "Role-based access control (RBAC)",
+        "Row-level security (RLS) for data isolation",
+        "Backend validation on every request",
+        "Cannot access data outside assigned location"
+      ],
+      "data_protection": [
+        "Database encryption at rest (Neon default)",
+        "HTTPS for all API calls",
+        "Audit logs encrypted (if sensitive data)",
+        "No sensitive data in API logs"
+      ],
+      "api_security": [
+        "Rate limiting (100 requests/min per user)",
+        "Request validation (size, type, format)",
+        "CORS configured (no wildcard)",
+        "API versioning (/v1/) for backward compatibility"
+      ]
+    },
+
+    "monitoring_and_alerts": {
+      "metrics_to_track": [
+        "API response time (p50, p95, p99)",
+        "Database query time",
+        "Error rate (5xx, 4xx)",
+        "Stock discrepancy (reserved + available != total)",
+        "Order completion time (request → dispatch → receive)",
+        "Notification delivery success rate",
+        "Mobile app crash rate",
+        "Database connection pool health"
+      ],
+      "alert_thresholds": {
+        "api_response_time_p95_gt_2s": "Alert",
+        "error_rate_gt_5%": "Alert",
+        "database_query_gt_1s": "Warning",
+        "stock_discrepancy_detected": "Critical",
+        "order_stuck_in_dispatched_24h": "Warning",
+        "notification_failure_rate_gt_10%": "Alert"
+      ]
+    }
+  },
+
+  "api_contract": {
+    "authentication": {
+      "POST /auth/login": {
+        "request": {"email": "string", "password": "string"},
+        "response": {"token": "jwt", "user": {"id": "uuid", "name": "string", "role": "string", "location_id": "uuid"}},
+        "errors": ["INVALID_CREDENTIALS", "ACCOUNT_LOCKED"]
+      },
+      "POST /auth/logout": {
+        "request": {"token": "jwt"},
+        "response": {"success": "boolean"}
+      }
+    },
+
+    "products": {
+      "GET /products": {
+        "query_params": {"search": "string", "filter_brand": "string", "filter_status": "string", "page": "int"},
+        "response": [{"id": "uuid", "title": "string", "brand": "string", "image_url": "string", "status": "string"}],
+        "roles": ["all"]
+      },
+      "POST /products": {
+        "request": {"title": "string", "brand": "string", "category": "string", "model": "string", "color": "string", "status": "string"},
+        "response": {"id": "uuid", "order_id": "string"},
+        "roles": ["superadmin"]
+      }
+    },
+
+    "orders_store": {
+      "POST /orders": {
+        "request": {"store_id": "uuid", "items": [{"product_id": "uuid", "qty": "int"}]},
+        "response": {"order_id": "string", "status": "draft"},
+        "roles": ["store_manager"]
+      },
+      "PATCH /orders/:id/approve": {
+        "request": {},
+        "response": {"order_id": "string", "status": "confirmed"},
+        "roles": ["superadmin"]
+      },
+      "PATCH /orders/:id/dispatch": {
+        "request": {"dispatch_notes": "string (optional)"},
+        "response": {"order_id": "string", "status": "dispatched"},
+        "roles": ["warehouse_manager"]
+      },
+      "PATCH /orders/:id/confirm-receive": {
+        "request": {},
+        "response": {"order_id": "string", "status": "store_received"},
+        "roles": ["store_manager"]
+      }
+    },
+
+    "inventory": {
+      "GET /inventory?location_id&product_id": {
+        "response": {"available_stock": "int", "reserved_stock": "int", "total_stock": "int"},
+        "roles": ["superadmin", "warehouse_manager", "store_manager"]
+      },
+      "GET /inventory/movements?location_id&date_from&date_to": {
+        "response": [{"product_id": "uuid", "quantity": "int", "type": "string", "created_at": "timestamp", "created_by": "user_id"}],
+        "roles": ["superadmin", "warehouse_manager", "store_manager"]
+      }
+    }
+  },
+
+  "testing_strategy": {
+    "unit_tests": {
+      "focus": [
+        "Reserved stock calculation (order confirmed)",
+        "Available stock calculation (total - reserved)",
+        "Status transition validation (only valid transitions allowed)",
+        "Permission checks (user can access resource)",
+        "Order ID generation (uniqueness, format)"
+      ]
+    },
+    "integration_tests": {
+      "focus": [
+        "Full store order workflow: create → approve → pack → dispatch → receive → complete",
+        "Full bulk order workflow: create → pack → dispatch → complete",
+        "Concurrent orders on same product (ensure no overselling)",
+        "Stock movement logging on every state change",
+        "Notification delivery on critical events"
+      ]
+    },
+    "load_tests": {
+      "scenarios": [
+        "100 concurrent store order requests",
+        "1000 product list queries",
+        "500 stock updates in parallel",
+        "Mobile app sync from 50 devices simultaneously"
+      ]
+    },
+    "security_tests": {
+      "focus": [
+        "Store manager cannot see other store's orders (data isolation)",
+        "Warehouse manager cannot modify products",
+        "Invalid transitions rejected (state machine)",
+        "Rate limiting enforced"
+      ]
+    }
+  },
+
+  "deployment_checklist": {
+    "pre_deployment": [
+      "✓ All tests passing (unit, integration, load)",
+      "✓ Audit logs enabled",
+      "✓ Rate limiting configured",
+      "✓ Error logging configured",
+      "✓ Notification queue set up (Redis or database-backed)",
+      "✓ Database backups configured (daily, 30-day retention)",
+      "✓ SSL certificates valid",
+      "✓ Environment variables configured (JWT secret, API keys, etc.)"
+    ],
+    "deployment": [
+      "✓ Deploy backend (code + migrations)",
+      "✓ Deploy frontend (iOS, Android, web)",
+      "✓ Verify database schema (constraints, indexes, RLS)",
+      "✓ Smoke test critical workflows (create order → dispatch → receive)",
+      "✓ Test notifications delivery",
+      "✓ Verify audit logs being written"
+    ],
+    "post_deployment": [
+      "✓ Monitor API response times (should be < 2s p95)",
+      "✓ Monitor error rate (should be < 1%)",
+      "✓ Check database connection pool",
+      "✓ Verify stock movements logged correctly",
+      "✓ Test offline mobile sync",
+      "✓ Verify role-based access working (test each role)"
+    ],
+    "rollback_plan": [
+      "Maintain previous version deployed",
+      "If critical bug: revert to previous version within 15 minutes",
+      "Restore from database backup if data corruption",
+      "Document what went wrong for post-mortem"
+    ]
+  },
+
+  "mvp_scope": {
+    "include": [
+      "Role-based login (3 roles)",
+      "Product listing (minimal UI)",
+      "Inventory per location (reserved stock model)",
+      "Store order request + approval + dispatch + receive flow",
+      "Bulk order creation + dispatch flow",
+      "Stock transfer (warehouse-to-store, MVP only)",
+      "Stock movement audit trail",
+      "Role-specific dashboards",
+      "Notifications (in-app, push, email)",
+      "Offline mobile sync"
+    ],
+    "exclude_for_now": [
+      "Payroll/Salary calculation",
+      "GPS attendance",
+      "Pricing/Invoicing",
+      "Advanced reporting",
+      "Barcode/QR scanning",
+      "Supplier purchase module",
+      "Customer CRM",
+      "AI forecasting"
+    ]
+  },
+
+  "future_scope": [
+    "Payroll module (if business needs it)",
+    "GPS-based attendance",
+    "Advanced pricing tiers (if needed for bulk orders)",
+    "Barcode/QR scanning for faster packing",
+    "Invoice generation for bulk orders",
+    "WhatsApp notifications",
+    "Advanced analytics & forecasting",
+    "Multi-warehouse supply chain optimization",
+    "Mobile app barcode/camera integration"
+  ]
+}
