@@ -2,7 +2,6 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import pinoHttp from 'pino-http';
 import pino from 'pino';
 
 import { env } from './config/env.js';
@@ -15,6 +14,7 @@ import { inventoryRouter } from './routes/inventory.js';
 import { locationsRouter } from './routes/locations.js';
 import { ordersRouter } from './routes/orders.js';
 import { productsRouter } from './routes/products.js';
+import { usersRouter } from './routes/users.js';
 
 const logger = pino({ level: env.logLevel });
 
@@ -23,7 +23,10 @@ export function createApp() {
   app.use(helmet());
   app.use(cors({ origin: env.corsOrigin }));
   app.use(rateLimit({ windowMs: 60_000, limit: 120 }));
-  app.use(pinoHttp({ logger }));
+  app.use((req, _res, next) => {
+    logger.info({ method: req.method, url: req.url }, 'request');
+    next();
+  });
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/health', (_req, res) => {
@@ -44,6 +47,7 @@ export function createApp() {
     app.use(`${prefix}/inventory`, inventoryRouter);
     app.use(`${prefix}/products`, productsRouter);
     app.use(`${prefix}/locations`, locationsRouter);
+    app.use(`${prefix}/users`, usersRouter);
     app.use(`${prefix}/orders`, ordersRouter);
     app.use(`${prefix}/bulk-orders`, bulkOrdersRouter);
     app.use(`${prefix}/clients`, clientsRouter);

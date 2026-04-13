@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/app_theme.dart';
 import 'navigation/app_router.dart';
 
 class StoreWarehouseApp extends ConsumerWidget {
@@ -11,16 +12,9 @@ class StoreWarehouseApp extends ConsumerWidget {
     final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(
-      title: 'Store Warehouse App',
+      title: 'Store & Warehouse Supply Management',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF125B50)),
-        useMaterial3: true,
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(),
-          isDense: true,
-        ),
-      ),
+      theme: AppTheme.darkTheme,
       routerConfig: router,
     );
   }

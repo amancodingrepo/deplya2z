@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 
@@ -19,11 +17,36 @@ class MockApi {
       );
 
   final _uuid = const Uuid();
-  final _random = Random();
   final Dio _dio;
+
+  String _errorMessage(Object error) {
+    if (error is DioException) {
+      final data = error.response?.data;
+      if (data is Map && data['message'] is String) {
+        return data['message'] as String;
+      }
+      if (data is Map && data['code'] is String) {
+        return data['code'] as String;
+      }
+      if (error.message != null && error.message!.trim().isNotEmpty) {
+        return error.message!;
+      }
+    }
+    return error.toString();
+  }
+
+  Options _authOptions(String token, {String? idempotencyKey}) {
+    return Options(
+      headers: {
+        'Authorization': 'Bearer $token',
+        if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
+      },
+    );
+  }
 
   String _roleToApi(UserRole role) {
     return switch (role) {
+      UserRole.superadmin => 'superadmin',
       UserRole.warehouseManager => 'warehouse_manager',
       UserRole.storeManager => 'store_manager',
     };
@@ -31,6 +54,7 @@ class MockApi {
 
   UserRole _roleFromApi(String role) {
     return switch (role) {
+      'superadmin' => UserRole.superadmin,
       'warehouse_manager' => UserRole.warehouseManager,
       'store_manager' => UserRole.storeManager,
       _ => UserRole.storeManager,
@@ -62,33 +86,47 @@ class MockApi {
         role: _roleFromApi(apiRole),
         locationId:
             user['location_id'] as String? ??
-            (role == UserRole.warehouseManager ? 'WH01' : 'ST01'),
+            switch (role) {
+              UserRole.superadmin => 'GLOBAL',
+              UserRole.warehouseManager => 'WH01',
+              UserRole.storeManager => 'ST01',
+            },
         token: payload['token'] as String? ?? _uuid.v4(),
         expiry: DateTime.now().add(const Duration(hours: 24)),
       );
-    } catch (_) {
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-      if (password.length < 4) {
-        throw Exception('Invalid credentials');
-      }
-
-      return UserSession(
-        id: _uuid.v4(),
-        name: role == UserRole.warehouseManager
-            ? 'Warehouse Manager'
-            : 'Store Manager',
-        email: email,
-        role: role,
-        locationId: role == UserRole.warehouseManager ? 'WH01' : 'ST01',
-        token: 'token-${_roleToApi(role)}',
-        expiry: DateTime.now().add(const Duration(hours: 24)),
-      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
     }
   }
 
   Future<String> refreshToken(String currentToken) async {
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    return '${currentToken.substring(0, 8)}-${_uuid.v4()}';
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/refresh',
+        options: _authOptions(currentToken),
+      );
+      final payload = response.data ?? <String, dynamic>{};
+      return payload['token'] as String? ?? currentToken;
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  /// Returns a rich list of products for listing with images.
+  Future<List<Product>> fetchProducts(String token) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        '/products',
+        options: _authOptions(token),
+      );
+      final data = response.data ?? <dynamic>[];
+      return data.map((row) {
+        final json = Map<String, dynamic>.from(row as Map);
+        return Product.fromJson(json);
+      }).toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
   }
 
   Future<List<InventoryItem>> fetchInventory(
@@ -99,7 +137,7 @@ class MockApi {
       final response = await _dio.get<List<dynamic>>(
         '/inventory',
         queryParameters: {'location_id': locationId},
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
+        options: _authOptions(token),
       );
 
       final data = response.data ?? <dynamic>[];
@@ -115,33 +153,16 @@ class MockApi {
               reservedStock: (json['reserved_stock'] as num).toInt(),
               totalStock: (json['total_stock'] as num).toInt(),
               cachedAt: DateTime.now(),
+              brand: (json['brand'] ?? '') as String,
+              category: (json['category'] ?? '') as String,
+              model: (json['model'] ?? '') as String,
+              color: (json['color'] ?? '') as String,
+              imageUrl: json['image_url'] as String?,
             ),
           )
           .toList();
-    } catch (_) {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      return [
-        InventoryItem(
-          productId: 'P001',
-          sku: 'SKU-TV-001',
-          title: 'Samsung 55in TV',
-          locationId: locationId,
-          availableStock: _random.nextInt(8) + 1,
-          reservedStock: _random.nextInt(4),
-          totalStock: 12,
-          cachedAt: DateTime.now(),
-        ),
-        InventoryItem(
-          productId: 'P002',
-          sku: 'SKU-FRD-001',
-          title: 'LG Double Door Fridge',
-          locationId: locationId,
-          availableStock: _random.nextInt(6) + 1,
-          reservedStock: _random.nextInt(2),
-          totalStock: 8,
-          cachedAt: DateTime.now(),
-        ),
-      ];
+    } catch (error) {
+      throw Exception(_errorMessage(error));
     }
   }
 
@@ -149,7 +170,7 @@ class MockApi {
     try {
       final response = await _dio.get<List<dynamic>>(
         '/orders',
-        options: Options(headers: {'Authorization': 'Bearer ${session.token}'}),
+        options: _authOptions(session.token),
       );
       final rows = response.data ?? <dynamic>[];
       return rows.map((row) {
@@ -188,29 +209,8 @@ class MockApi {
           syncStatus: SyncStatus.synced,
         );
       }).toList();
-    } catch (_) {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      return [
-        StoreOrder(
-          id: 'O1',
-          orderId: 'ORD-ST01-20260412-0001',
-          storeId: 'ST01',
-          warehouseId: 'WH01',
-          status: OrderStatus.confirmed,
-          items: const [
-            OrderItem(
-              productId: 'P001',
-              title: 'Samsung 55in TV',
-              sku: 'SKU-TV-001',
-              quantity: 5,
-            ),
-          ],
-          reservedAmount: 5,
-          createdAt: DateTime.now().subtract(const Duration(hours: 3)),
-          updatedAt: DateTime.now().subtract(const Duration(hours: 2)),
-          syncStatus: SyncStatus.synced,
-        ),
-      ];
+    } catch (error) {
+      throw Exception(_errorMessage(error));
     }
   }
 
@@ -219,12 +219,7 @@ class MockApi {
       if (action.type == SyncActionType.createOrder) {
         await _dio.post(
           '/orders',
-          options: Options(
-            headers: {
-              'Authorization': 'Bearer ${session.token}',
-              'Idempotency-Key': action.id,
-            },
-          ),
+          options: _authOptions(session.token, idempotencyKey: action.id),
           data: {
             'store_id': action.payload['storeId'] ?? session.locationId,
             'warehouse_id': action.payload['warehouseId'] ?? 'WH01',
@@ -234,39 +229,21 @@ class MockApi {
       } else if (action.type == SyncActionType.markPacked) {
         await _dio.patch(
           '/orders/${action.entityId}/pack',
-          options: Options(
-            headers: {
-              'Authorization': 'Bearer ${session.token}',
-              'Idempotency-Key': action.id,
-            },
-          ),
+          options: _authOptions(session.token, idempotencyKey: action.id),
         );
       } else if (action.type == SyncActionType.markDispatched) {
         await _dio.patch(
           '/orders/${action.entityId}/dispatch',
-          options: Options(
-            headers: {
-              'Authorization': 'Bearer ${session.token}',
-              'Idempotency-Key': action.id,
-            },
-          ),
+          options: _authOptions(session.token, idempotencyKey: action.id),
         );
       } else {
         await _dio.patch(
           '/orders/${action.entityId}/confirm-receive',
-          options: Options(
-            headers: {
-              'Authorization': 'Bearer ${session.token}',
-              'Idempotency-Key': action.id,
-            },
-          ),
+          options: _authOptions(session.token, idempotencyKey: action.id),
         );
       }
-    } catch (_) {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      if (_random.nextInt(20) == 0) {
-        throw Exception('Temporary sync failure');
-      }
+    } catch (error) {
+      throw Exception(_errorMessage(error));
     }
   }
 
@@ -279,12 +256,7 @@ class MockApi {
   }) async {
     await _dio.post(
       '/orders',
-      options: Options(
-        headers: {
-          'Authorization': 'Bearer ${session.token}',
-          'Idempotency-Key': idempotencyKey,
-        },
-      ),
+      options: _authOptions(session.token, idempotencyKey: idempotencyKey),
       data: {
         'store_id': session.locationId,
         'warehouse_id': warehouseId,
@@ -314,12 +286,276 @@ class MockApi {
 
     await _dio.patch(
       endpoint,
-      options: Options(
-        headers: {
-          'Authorization': 'Bearer ${session.token}',
-          'Idempotency-Key': _uuid.v4(),
-        },
-      ),
+      options: _authOptions(session.token, idempotencyKey: _uuid.v4()),
     );
   }
+
+  Future<List<AppLocation>> fetchLocations(String token) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        '/locations',
+        options: _authOptions(token),
+      );
+      final rows = response.data ?? <dynamic>[];
+      return rows
+          .map((row) => AppLocation.fromJson(Map<String, dynamic>.from(row as Map)))
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<List<EmployeeUser>> fetchUsers(String token) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        '/users',
+        options: _authOptions(token),
+      );
+      final rows = response.data ?? <dynamic>[];
+      return rows
+          .map((row) => EmployeeUser.fromJson(Map<String, dynamic>.from(row as Map)))
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<EmployeeUser> createEmployeeUser({
+    required String token,
+    required String email,
+    required String name,
+    required String password,
+    required UserRole role,
+    String? locationId,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/users',
+        options: _authOptions(token),
+        data: {
+          'email': email,
+          'name': name,
+          'password': password,
+          'role': _roleToApi(role),
+          'location_id': role == UserRole.superadmin ? null : locationId,
+        },
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return EmployeeUser.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<EmployeeUser> updateEmployeeStatus({
+    required String token,
+    required String userId,
+    required bool active,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/users/$userId',
+        options: _authOptions(token),
+        data: {'status': active ? 'active' : 'inactive'},
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return EmployeeUser.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ─── Rich mock product catalog ──────────────────────────────────
+
+  static final List<Product> _mockProducts = [
+    const Product(
+      id: 'P001',
+      title: 'Samsung 55" QLED Smart TV',
+      shortName: 'TV-55-SM',
+      sku: 'SKU-TV-001',
+      brand: 'Samsung',
+      category: 'Electronics',
+      model: 'QN55Q80C',
+      color: 'Titan Black',
+      status: 'present',
+      customStyle: 'premium',
+      imageUrl: 'https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=300&h=300&fit=crop',
+    ),
+    const Product(
+      id: 'P002',
+      title: 'LG Double Door Refrigerator',
+      shortName: 'FRD-DD-LG',
+      sku: 'SKU-FRD-001',
+      brand: 'LG',
+      category: 'Home Appliances',
+      model: 'GL-T292RPZX',
+      color: 'Shiny Steel',
+      status: 'present',
+      customStyle: 'featured',
+      imageUrl: 'https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?w=300&h=300&fit=crop',
+    ),
+    const Product(
+      id: 'P003',
+      title: 'Sony WH-1000XM5 Headphones',
+      shortName: 'HP-XM5-SN',
+      sku: 'SKU-HP-001',
+      brand: 'Sony',
+      category: 'Audio',
+      model: 'WH-1000XM5',
+      color: 'Midnight Blue',
+      status: 'present',
+      customStyle: 'premium',
+      imageUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&h=300&fit=crop',
+    ),
+    const Product(
+      id: 'P004',
+      title: 'Apple MacBook Pro 14"',
+      shortName: 'MBP-14-AP',
+      sku: 'SKU-LPT-001',
+      brand: 'Apple',
+      category: 'Computers',
+      model: 'M3 Pro',
+      color: 'Space Black',
+      status: 'present',
+      customStyle: 'premium',
+      imageUrl: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=300&h=300&fit=crop',
+    ),
+    const Product(
+      id: 'P005',
+      title: 'Dyson V15 Detect Vacuum',
+      shortName: 'VAC-V15-DY',
+      sku: 'SKU-VAC-001',
+      brand: 'Dyson',
+      category: 'Home Appliances',
+      model: 'V15 Detect',
+      color: 'Yellow Nickel',
+      status: 'present',
+      customStyle: 'featured',
+      imageUrl: 'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=300&h=300&fit=crop',
+    ),
+    const Product(
+      id: 'P006',
+      title: 'Samsung Galaxy S24 Ultra',
+      shortName: 'PH-S24U-SM',
+      sku: 'SKU-PH-001',
+      brand: 'Samsung',
+      category: 'Smartphones',
+      model: 'S24 Ultra',
+      color: 'Titanium Violet',
+      status: 'present',
+      customStyle: 'premium',
+      imageUrl: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=300&h=300&fit=crop',
+    ),
+    const Product(
+      id: 'P007',
+      title: 'Bosch Front Load Washer 8kg',
+      shortName: 'WSH-8K-BS',
+      sku: 'SKU-WSH-001',
+      brand: 'Bosch',
+      category: 'Home Appliances',
+      model: 'WAJ2846SIN',
+      color: 'Silver',
+      status: 'present',
+      customStyle: 'default',
+      imageUrl: 'https://images.unsplash.com/photo-1626806787461-102c1bfaaea1?w=300&h=300&fit=crop',
+    ),
+    const Product(
+      id: 'P008',
+      title: 'LG 27" UltraGear Monitor',
+      shortName: 'MON-27-LG',
+      sku: 'SKU-MON-001',
+      brand: 'LG',
+      category: 'Electronics',
+      model: '27GR95QE',
+      color: 'Matte Black',
+      status: 'present',
+      customStyle: 'featured',
+      imageUrl: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=300&h=300&fit=crop',
+    ),
+  ];
+
+  static final List<StoreOrder> _mockOrders = [
+    StoreOrder(
+      id: 'O1',
+      orderId: 'ORD-ST01-20260412-0001',
+      storeId: 'ST01',
+      warehouseId: 'WH01',
+      status: OrderStatus.confirmed,
+      items: const [
+        OrderItem(
+          productId: 'P001',
+          title: 'Samsung 55" QLED Smart TV',
+          sku: 'SKU-TV-001',
+          quantity: 5,
+        ),
+      ],
+      reservedAmount: 5,
+      createdAt: DateTime.now().subtract(const Duration(hours: 3)),
+      updatedAt: DateTime.now().subtract(const Duration(hours: 2)),
+      syncStatus: SyncStatus.synced,
+    ),
+    StoreOrder(
+      id: 'O2',
+      orderId: 'ORD-ST01-20260412-0002',
+      storeId: 'ST01',
+      warehouseId: 'WH01',
+      status: OrderStatus.packed,
+      items: const [
+        OrderItem(
+          productId: 'P002',
+          title: 'LG Double Door Refrigerator',
+          sku: 'SKU-FRD-001',
+          quantity: 3,
+        ),
+      ],
+      reservedAmount: 3,
+      createdAt: DateTime.now().subtract(const Duration(hours: 5)),
+      updatedAt: DateTime.now().subtract(const Duration(hours: 1)),
+      syncStatus: SyncStatus.synced,
+    ),
+    StoreOrder(
+      id: 'O3',
+      orderId: 'ORD-ST01-20260411-0003',
+      storeId: 'ST01',
+      warehouseId: 'WH01',
+      status: OrderStatus.dispatched,
+      items: const [
+        OrderItem(
+          productId: 'P003',
+          title: 'Sony WH-1000XM5 Headphones',
+          sku: 'SKU-HP-001',
+          quantity: 10,
+        ),
+        OrderItem(
+          productId: 'P006',
+          title: 'Samsung Galaxy S24 Ultra',
+          sku: 'SKU-PH-001',
+          quantity: 4,
+        ),
+      ],
+      reservedAmount: 14,
+      createdAt: DateTime.now().subtract(const Duration(hours: 26)),
+      updatedAt: DateTime.now().subtract(const Duration(hours: 6)),
+      syncStatus: SyncStatus.synced,
+    ),
+    StoreOrder(
+      id: 'O4',
+      orderId: 'ORD-ST01-20260410-0004',
+      storeId: 'ST01',
+      warehouseId: 'WH01',
+      status: OrderStatus.completed,
+      items: const [
+        OrderItem(
+          productId: 'P004',
+          title: 'Apple MacBook Pro 14"',
+          sku: 'SKU-LPT-001',
+          quantity: 2,
+        ),
+      ],
+      reservedAmount: 2,
+      createdAt: DateTime.now().subtract(const Duration(days: 3)),
+      updatedAt: DateTime.now().subtract(const Duration(days: 2)),
+      syncStatus: SyncStatus.synced,
+    ),
+  ];
 }

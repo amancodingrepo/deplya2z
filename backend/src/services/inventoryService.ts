@@ -1,3 +1,5 @@
+import type { PoolClient } from 'pg';
+
 import { pool } from '../database/connection.js';
 import { findBulkOrderById, updateBulkOrderStatus } from '../repositories/bulkOrderRepository.js';
 import { findLocationByCode } from '../repositories/locationRepository.js';
@@ -47,7 +49,7 @@ export async function getStockMovements(input: {
 type OrderLikeItem = { product_id: string; qty: number };
 
 async function insertStockMovement(input: {
-  client: Awaited<ReturnType<typeof pool.connect>>;
+  client: PoolClient;
   productId: string;
   fromLocationId: string | null;
   toLocationId: string;

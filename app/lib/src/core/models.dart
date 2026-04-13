@@ -1,4 +1,4 @@
-enum UserRole { warehouseManager, storeManager }
+enum UserRole { superadmin, warehouseManager, storeManager }
 
 enum OrderStatus {
   draft,
@@ -160,6 +160,87 @@ class StoreOrder {
   );
 }
 
+class Product {
+  const Product({
+    required this.id,
+    required this.title,
+    required this.shortName,
+    required this.sku,
+    required this.brand,
+    required this.category,
+    required this.model,
+    required this.color,
+    required this.status,
+    required this.customStyle,
+    this.imageUrl,
+    this.localImagePath,
+  });
+
+  final String id;
+  final String title;
+  final String shortName;
+  final String sku;
+  final String brand;
+  final String category;
+  final String model;
+  final String color;
+  final String status; // present | inactive | discontinued
+  final String customStyle; // default | premium | featured | sale | catalogue_ready
+  final String? imageUrl;
+  final String? localImagePath;
+
+  Product copyWith({
+    String? imageUrl,
+    String? localImagePath,
+    String? status,
+  }) {
+    return Product(
+      id: id,
+      title: title,
+      shortName: shortName,
+      sku: sku,
+      brand: brand,
+      category: category,
+      model: model,
+      color: color,
+      status: status ?? this.status,
+      customStyle: customStyle,
+      imageUrl: imageUrl ?? this.imageUrl,
+      localImagePath: localImagePath ?? this.localImagePath,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'shortName': shortName,
+    'sku': sku,
+    'brand': brand,
+    'category': category,
+    'model': model,
+    'color': color,
+    'status': status,
+    'customStyle': customStyle,
+    'imageUrl': imageUrl,
+    'localImagePath': localImagePath,
+  };
+
+  factory Product.fromJson(Map<dynamic, dynamic> json) => Product(
+    id: json['id'] as String,
+    title: json['title'] as String,
+    shortName: (json['shortName'] ?? json['short_name'] ?? '') as String,
+    sku: json['sku'] as String,
+    brand: (json['brand'] ?? '') as String,
+    category: (json['category'] ?? '') as String,
+    model: (json['model'] ?? '') as String,
+    color: (json['color'] ?? '') as String,
+    status: (json['status'] ?? 'present') as String,
+    customStyle: (json['customStyle'] ?? json['custom_style'] ?? 'default') as String,
+    imageUrl: json['imageUrl'] as String?,
+    localImagePath: json['localImagePath'] as String?,
+  );
+}
+
 class InventoryItem {
   const InventoryItem({
     required this.productId,
@@ -170,6 +251,12 @@ class InventoryItem {
     required this.reservedStock,
     required this.totalStock,
     required this.cachedAt,
+    this.brand = '',
+    this.category = '',
+    this.model = '',
+    this.color = '',
+    this.imageUrl,
+    this.localImagePath,
   });
 
   final String productId;
@@ -180,8 +267,36 @@ class InventoryItem {
   final int reservedStock;
   final int totalStock;
   final DateTime cachedAt;
+  final String brand;
+  final String category;
+  final String model;
+  final String color;
+  final String? imageUrl;
+  final String? localImagePath;
 
   bool get isLowStock => availableStock <= 3;
+
+  InventoryItem copyWith({
+    String? imageUrl,
+    String? localImagePath,
+  }) {
+    return InventoryItem(
+      productId: productId,
+      sku: sku,
+      title: title,
+      locationId: locationId,
+      availableStock: availableStock,
+      reservedStock: reservedStock,
+      totalStock: totalStock,
+      cachedAt: cachedAt,
+      brand: brand,
+      category: category,
+      model: model,
+      color: color,
+      imageUrl: imageUrl ?? this.imageUrl,
+      localImagePath: localImagePath ?? this.localImagePath,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'productId': productId,
@@ -192,6 +307,12 @@ class InventoryItem {
     'reservedStock': reservedStock,
     'totalStock': totalStock,
     'cachedAt': cachedAt.toIso8601String(),
+    'brand': brand,
+    'category': category,
+    'model': model,
+    'color': color,
+    'imageUrl': imageUrl,
+    'localImagePath': localImagePath,
   };
 
   factory InventoryItem.fromJson(Map<dynamic, dynamic> json) => InventoryItem(
@@ -203,6 +324,12 @@ class InventoryItem {
     reservedStock: json['reservedStock'] as int,
     totalStock: json['totalStock'] as int,
     cachedAt: DateTime.parse(json['cachedAt'] as String),
+    brand: (json['brand'] ?? '') as String,
+    category: (json['category'] ?? '') as String,
+    model: (json['model'] ?? '') as String,
+    color: (json['color'] ?? '') as String,
+    imageUrl: json['imageUrl'] as String?,
+    localImagePath: json['localImagePath'] as String?,
   );
 }
 
@@ -266,5 +393,75 @@ class SyncAction {
     status: SyncStatus.values.byName(json['status'] as String),
     retryCount: json['retryCount'] as int,
     errorMessage: json['errorMessage'] as String?,
+  );
+}
+
+class AppLocation {
+  const AppLocation({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.type,
+    required this.status,
+  });
+
+  final String id;
+  final String code;
+  final String name;
+  final String type;
+  final String status;
+
+  factory AppLocation.fromJson(Map<dynamic, dynamic> json) => AppLocation(
+    id: json['id'] as String,
+    code: json['location_code'] as String,
+    name: json['name'] as String,
+    type: json['type'] as String,
+    status: (json['status'] ?? 'active') as String,
+  );
+}
+
+class EmployeeUser {
+  const EmployeeUser({
+    required this.id,
+    required this.email,
+    required this.name,
+    required this.role,
+    required this.status,
+    required this.locationId,
+    required this.locationName,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String email;
+  final String name;
+  final UserRole role;
+  final String status;
+  final String? locationId;
+  final String? locationName;
+  final DateTime createdAt;
+
+  String get roleLabel => switch (role) {
+    UserRole.superadmin => 'Superadmin',
+    UserRole.warehouseManager => 'Warehouse Manager',
+    UserRole.storeManager => 'Store Manager',
+  };
+
+  bool get isActive => status == 'active';
+
+  factory EmployeeUser.fromJson(Map<dynamic, dynamic> json) => EmployeeUser(
+    id: json['id'] as String,
+    email: json['email'] as String,
+    name: json['name'] as String,
+    role: switch (json['role'] as String) {
+      'superadmin' => UserRole.superadmin,
+      'warehouse_manager' => UserRole.warehouseManager,
+      _ => UserRole.storeManager,
+    },
+    status: (json['status'] ?? 'active') as String,
+    locationId: json['location_id'] as String?,
+    locationName: json['location_name'] as String?,
+    createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ??
+        DateTime.now(),
   );
 }

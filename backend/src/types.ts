@@ -1,4 +1,5 @@
 export type UserRole = 'superadmin' | 'warehouse_manager' | 'store_manager';
+export type UserStatus = 'active' | 'inactive' | 'blocked';
 
 export type OrderStatus =
   | 'draft'
@@ -15,7 +16,19 @@ export type User = {
   name: string;
   role: UserRole;
   location_id: string | null;
-  status: 'active' | 'inactive' | 'blocked';
+  status: UserStatus;
+};
+
+export type EmployeeUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  location_id: string | null;
+  location_name: string | null;
+  status: UserStatus;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Location = {

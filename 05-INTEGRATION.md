@@ -24,6 +24,9 @@ This project is structured as one operational system:
 - GET /inventory/movements
 - GET /products
 - GET /locations
+- GET /users
+- POST /users
+- PATCH /users/:id
 - GET /clients
 - GET /orders
 - POST /orders

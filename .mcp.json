@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "skillgod": {
+      "command": "C:\\Python313\\python.exe",
+      "args": [
+        "C:\\amany\\skillgod\\engine\\mcp_server.py"
+      ],
+      "env": {
+        "SKILLGOD_PROJECT": "A2z",
+        "SKILLGOD_ROOT": "C:\\amany\\skillgod"
+      }
+    }
+  }
+}

@@ -14,6 +14,9 @@ Production-oriented REST API for the shared store and warehouse platform.
 - GET /inventory/movements
 - GET /products
 - GET /locations
+- GET /users
+- POST /users
+- PATCH /users/:id
 - GET /clients
 - GET /orders
 - POST /orders

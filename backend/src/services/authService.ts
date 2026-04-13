@@ -1,9 +1,13 @@
 import crypto from 'crypto';
-import jwt from 'jsonwebtoken';
+import jwt, { type SignOptions } from 'jsonwebtoken';
 
 import { env } from '../config/env.js';
 import { AuthenticationError } from '../shared/errors.js';
 import { findSessionUserById, findUserByEmailWithPassword } from '../repositories/userRepository.js';
+
+const jwtOptions: SignOptions = {
+  expiresIn: env.jwtExpiresIn as SignOptions['expiresIn'],
+};
 
 function verifyPassword(password: string, passwordHash: string) {
   const parts = passwordHash.split('$');
@@ -37,7 +41,7 @@ export async function login(email: string, password: string) {
   const token = jwt.sign(
     { userId: user.id, role: user.role, location_id: user.location_code ?? null },
     env.jwtSecret,
-    { expiresIn: env.jwtExpiresIn },
+    jwtOptions,
   );
 
   return {
@@ -57,7 +61,7 @@ export async function refresh(tokenPayload: { userId: string }) {
   const token = jwt.sign(
     { userId: user.id, role: user.role, location_id: user.location_code ?? null },
     env.jwtSecret,
-    { expiresIn: env.jwtExpiresIn },
+    jwtOptions,
   );
   return {
     token,

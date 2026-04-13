@@ -4,6 +4,7 @@ This app follows the PRD for two operational roles in a single mobile client:
 
 - Warehouse Manager: list inventory, pack, dispatch.
 - Store Manager: view store inventory, request items, confirm receipt.
+- Superadmin Employee App: create/list/update employee accounts.
 
 It is designed for the same backend and database model used by the web app.
 
@@ -12,12 +13,17 @@ It is designed for the same backend and database model used by the web app.
 The app consumes the shared REST endpoints:
 
 - POST /auth/login
+- POST /auth/refresh
 - GET /inventory
 - GET /orders
 - POST /orders
 - PATCH /orders/:id/pack
 - PATCH /orders/:id/dispatch
 - PATCH /orders/:id/confirm-receive
+- GET /users
+- POST /users
+- PATCH /users/:id
+- GET /locations
 
 ## Run
 
@@ -26,4 +32,4 @@ The app consumes the shared REST endpoints:
 
 	flutter run --dart-define=API_BASE_URL=http://localhost:8080
 
-If API is unavailable, the app falls back to local mock data and offline queue behavior.
+If API is unavailable, login and online sync fail with backend errors while local cached data remains available.

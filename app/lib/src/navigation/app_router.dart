@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/models.dart';
 import '../state/providers.dart';
+import '../ui/employee_screen.dart';
 import '../ui/inventory_screen.dart';
 import '../ui/login_screen.dart';
 import '../ui/store_screen.dart';
@@ -22,6 +23,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
 
       if (goingToLogin) {
+        return switch (appState.session!.role) {
+          UserRole.superadmin => '/employee',
+          UserRole.warehouseManager => '/warehouse',
+          UserRole.storeManager => '/store',
+        };
+      }
+
+      if (state.matchedLocation == '/employee' &&
+          appState.session!.role != UserRole.superadmin) {
         return appState.session!.role == UserRole.warehouseManager
             ? '/warehouse'
             : '/store';
@@ -29,12 +39,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       if (state.matchedLocation == '/warehouse' &&
           appState.session!.role != UserRole.warehouseManager) {
-        return '/store';
+        return appState.session!.role == UserRole.superadmin
+            ? '/employee'
+            : '/store';
       }
 
       if (state.matchedLocation == '/store' &&
           appState.session!.role != UserRole.storeManager) {
-        return '/warehouse';
+        return appState.session!.role == UserRole.superadmin
+            ? '/employee'
+            : '/warehouse';
+      }
+
+      if (state.matchedLocation == '/inventory' &&
+          appState.session!.role == UserRole.superadmin) {
+        return '/employee';
       }
 
       return null;
@@ -46,6 +65,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const WarehouseScreen(),
       ),
       GoRoute(path: '/store', builder: (context, state) => const StoreScreen()),
+      GoRoute(
+        path: '/employee',
+        builder: (context, state) => const EmployeeScreen(),
+      ),
       GoRoute(
         path: '/inventory',
         builder: (context, state) => const InventoryScreen(),

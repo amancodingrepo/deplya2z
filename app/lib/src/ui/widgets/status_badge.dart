@@ -1,40 +1,55 @@
 import 'package:flutter/material.dart';
 
+import '../../core/app_theme.dart';
 import '../../core/models.dart';
 
+/// Modern status badge with dot indicator and label.
 class StatusBadge extends StatelessWidget {
-  const StatusBadge({super.key, required this.status});
+  const StatusBadge({super.key, required this.status, this.compact = false});
 
   final OrderStatus status;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final (bgColor, textColor) = switch (status) {
-      OrderStatus.draft => (Colors.blue.shade50, Colors.blue.shade900),
-      OrderStatus.confirmed => (Colors.cyan.shade50, Colors.cyan.shade900),
-      OrderStatus.packed => (Colors.orange.shade50, Colors.orange.shade900),
-      OrderStatus.dispatched => (Colors.indigo.shade50, Colors.indigo.shade900),
-      OrderStatus.storeReceived => (
-        Colors.green.shade50,
-        Colors.green.shade900,
-      ),
-      OrderStatus.completed => (Colors.teal.shade50, Colors.teal.shade900),
-      OrderStatus.cancelled => (Colors.red.shade50, Colors.red.shade900),
+    final (color, label) = switch (status) {
+      OrderStatus.draft => (AppTheme.textMuted, 'Draft'),
+      OrderStatus.confirmed => (AppTheme.info, 'Confirmed'),
+      OrderStatus.packed => (AppTheme.warning, 'Packed'),
+      OrderStatus.dispatched => (const Color(0xFF818CF8), 'Dispatched'),
+      OrderStatus.storeReceived => (AppTheme.success, 'Received'),
+      OrderStatus.completed => (const Color(0xFF2DD4BF), 'Completed'),
+      OrderStatus.cancelled => (AppTheme.error, 'Cancelled'),
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 12,
+        vertical: compact ? 4 : 6,
       ),
-      child: Text(
-        status.name,
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
-        ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontSize: compact ? 10 : 12,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -6,8 +6,11 @@ class AppState {
     required this.isOnline,
     required this.loading,
     required this.session,
+    required this.products,
     required this.orders,
     required this.inventory,
+    required this.employees,
+    required this.locations,
     required this.syncQueue,
     required this.message,
   });
@@ -16,8 +19,11 @@ class AppState {
   final bool isOnline;
   final bool loading;
   final UserSession? session;
+  final List<Product> products;
   final List<StoreOrder> orders;
   final List<InventoryItem> inventory;
+  final List<EmployeeUser> employees;
+  final List<AppLocation> locations;
   final List<SyncAction> syncQueue;
   final String? message;
 
@@ -29,8 +35,11 @@ class AppState {
     bool? loading,
     UserSession? session,
     bool clearSession = false,
+    List<Product>? products,
     List<StoreOrder>? orders,
     List<InventoryItem>? inventory,
+    List<EmployeeUser>? employees,
+    List<AppLocation>? locations,
     List<SyncAction>? syncQueue,
     String? message,
     bool clearMessage = false,
@@ -40,8 +49,11 @@ class AppState {
       isOnline: isOnline ?? this.isOnline,
       loading: loading ?? this.loading,
       session: clearSession ? null : (session ?? this.session),
+      products: products ?? this.products,
       orders: orders ?? this.orders,
       inventory: inventory ?? this.inventory,
+      employees: employees ?? this.employees,
+      locations: locations ?? this.locations,
       syncQueue: syncQueue ?? this.syncQueue,
       message: clearMessage ? null : (message ?? this.message),
     );
@@ -52,8 +64,11 @@ class AppState {
     isOnline: true,
     loading: false,
     session: null,
+    products: <Product>[],
     orders: <StoreOrder>[],
     inventory: <InventoryItem>[],
+    employees: <EmployeeUser>[],
+    locations: <AppLocation>[],
     syncQueue: <SyncAction>[],
     message: null,
   );
