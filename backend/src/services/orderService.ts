@@ -1,4 +1,4 @@
-import { v4 as uuid } from 'uuid';
+import { pool } from '../database/connection.js';
 
 import { AuthorizationError, ConflictAppError, NotFoundError, ValidationAppError } from '../shared/errors.js';
 import { findLocationByCode } from '../repositories/locationRepository.js';
@@ -32,14 +32,16 @@ export async function createStoreOrderDraft(input: {
     throw new AuthorizationError('Only store managers can create store orders');
   }
 
-  if (input.locationId !== input.storeId) {
-    throw new AuthorizationError('Store scope violation', 'STORE_SCOPE_VIOLATION');
-  }
-
+  const actorLocation = input.locationId ? await findLocationByCode(input.locationId) : null;
   const store = await findLocationByCode(input.storeId);
   const warehouse = await findLocationByCode(input.warehouseId);
+
   if (!store || !warehouse) {
     throw new NotFoundError('Store or warehouse not found');
+  }
+
+  if (!actorLocation || actorLocation.id !== store.id) {
+    throw new AuthorizationError('Store scope violation', 'STORE_SCOPE_VIOLATION');
   }
 
   // Validate stock availability
@@ -82,9 +84,14 @@ export async function createStoreOrderDraft(input: {
 
 // Helper function to get today's order count for ID generation
 async function getOrderCountToday(locationCode: string): Promise<number> {
-  // This should query the database for today's orders
-  // For now, using random number as fallback
-  return Math.floor(Math.random() * 100);
+  const result = await pool.query(
+    `select count(*)::int as count
+     from store_orders so
+     join locations l on l.id = so.store_id
+     where l.location_code = $1 and so.created_at::date = current_date`,
+    [locationCode],
+  );
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 export async function transitionOrder(input: {

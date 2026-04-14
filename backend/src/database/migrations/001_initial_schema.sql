@@ -199,9 +199,9 @@ CREATE INDEX idx_transfer_requests_status ON transfer_requests(status);
 CREATE TABLE IF NOT EXISTS audit_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   actor_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  action VARCHAR(50) NOT NULL CHECK (action IN ('create', 'update', 'delete', 'approve', 'dispatch', 'confirm_receive', 'cancel', 'error')),
-  entity_type VARCHAR(50) NOT NULL CHECK (entity_type IN ('user', 'product', 'order', 'inventory', 'transfer', 'system', 'store_order', 'bulk_order')),
-  entity_id UUID,
+  action VARCHAR(100) NOT NULL,
+  entity_type VARCHAR(100) NOT NULL,
+  entity_id VARCHAR(255),
   before_value JSONB,
   after_value JSONB,
   details TEXT,
@@ -220,14 +220,15 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX idx_audit_logs_request_id ON audit_logs(request_id);
 
 -- Idempotency Keys Table (for preventing duplicate requests)
-CREATE TABLE IF NOT EXISTS idempotency_keys (
-  key VARCHAR(255) PRIMARY KEY,
-  response JSONB NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-  expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+CREATE TABLE IF NOT EXISTS idempotency_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  idempotency_key VARCHAR(255) NOT NULL UNIQUE,
+  endpoint VARCHAR(255) NOT NULL,
+  response_json JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE INDEX idx_idempotency_keys_expires_at ON idempotency_keys(expires_at);
+CREATE INDEX idx_idempotency_logs_created_at ON idempotency_logs(created_at);
 
 -- Triggers for updated_at timestamps
 CREATE OR REPLACE FUNCTION update_updated_at_column()

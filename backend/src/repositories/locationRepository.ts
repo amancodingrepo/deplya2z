@@ -25,6 +25,9 @@ export async function listLocations(params: { type?: string }) {
 }
 
 export async function findLocationByCode(locationCode: string) {
-  const result = await pool.query('select * from locations where location_code = $1 limit 1', [locationCode]);
+  const result = await pool.query(
+    'select * from locations where location_code = $1 or id::text = $1 limit 1',
+    [locationCode],
+  );
   return result.rows[0] ? mapLocation(result.rows[0]) : null;
 }

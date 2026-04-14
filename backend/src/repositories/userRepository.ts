@@ -54,7 +54,7 @@ function mapEmployeeUser(row: QueryResultRow): EmployeeUser {
     email: row.email,
     name: row.name,
     role: row.role,
-    location_id: row.location_code ?? null,
+    location_id: row.location_id ?? null,
     location_name: row.location_name ?? null,
     status: row.status,
     created_at: row.created_at,
@@ -75,7 +75,7 @@ export async function listEmployeeUsers(params: ListUsersParams) {
 
   if (params.actorRole === 'warehouse_manager' && params.actorLocationCode) {
     values.push(params.actorLocationCode);
-    where.push(`l.location_code = $${values.length}`);
+    where.push(`(u.location_id::text = $${values.length} or l.location_code = $${values.length})`);
   }
 
   if (params.role) {
@@ -95,6 +95,7 @@ export async function listEmployeeUsers(params: ListUsersParams) {
        u.email,
        u.name,
        u.role,
+      u.location_id,
        u.status,
        u.created_at,
        u.updated_at,
@@ -124,7 +125,7 @@ export async function createEmployeeUser(input: {
        $2,
        $3,
        $4,
-       (select id from locations where location_code = $5 limit 1),
+       (select id from locations where location_code = $5 or id::text = $5 limit 1),
        $6
      )
      returning id`,
@@ -153,6 +154,7 @@ export async function findEmployeeUserById(id: string) {
        u.email,
        u.name,
        u.role,
+      u.location_id,
        u.status,
        u.created_at,
        u.updated_at,
@@ -203,7 +205,7 @@ export async function updateEmployeeUser(
   if (input.locationCode !== undefined) {
     values.push(input.locationCode);
     fields.push(
-      `location_id = (select id from locations where location_code = $${values.length} limit 1)`,
+      `location_id = (select id from locations where location_code = $${values.length} or id::text = $${values.length} limit 1)`,
     );
   }
 

@@ -23,10 +23,10 @@ export async function listOrders(params: { role: string; locationId?: string }) 
   const values: Array<string> = [];
   if (params.role === 'warehouse_manager' && params.locationId) {
     values.push(params.locationId);
-    query += ' where warehouse_id = (select id from locations where location_code = $1 limit 1)';
+    query += ' where warehouse_id::text = $1 or warehouse_id = (select id from locations where location_code = $1 limit 1)';
   } else if (params.role === 'store_manager' && params.locationId) {
     values.push(params.locationId);
-    query += ' where store_id = (select id from locations where location_code = $1 limit 1)';
+    query += ' where store_id::text = $1 or store_id = (select id from locations where location_code = $1 limit 1)';
   }
   query += ' order by created_at desc';
   const result = await pool.query(query, values);

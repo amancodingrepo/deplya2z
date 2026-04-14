@@ -1,5 +1,3 @@
-import crypto from 'crypto';
-
 import { findLocationByCode } from '../repositories/locationRepository.js';
 import {
   createEmployeeUser,
@@ -14,6 +12,7 @@ import {
   ValidationAppError,
 } from '../shared/errors.js';
 import type { UserRole, UserStatus } from '../types.js';
+import { hashPassword as hashPasswordBcrypt } from '../utils/crypto.js';
 
 type ListInput = {
   actorRole: UserRole;
@@ -42,13 +41,6 @@ type UpdateInput = {
   status?: UserStatus;
 };
 
-function hashPassword(password: string) {
-  const iterations = 100_000;
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('hex');
-  return `pbkdf2$${iterations}$${salt}$${hash}`;
-}
-
 async function validateRoleLocation(role: UserRole, locationCode?: string | null) {
   if (role === 'superadmin') {
     return null;
@@ -71,7 +63,7 @@ async function validateRoleLocation(role: UserRole, locationCode?: string | null
     throw new ValidationAppError('store_manager must be assigned to a store location');
   }
 
-  return location.location_code;
+  return location.id;
 }
 
 export async function listUsers(input: ListInput) {
@@ -96,7 +88,7 @@ export async function createUser(input: CreateInput) {
   try {
     const created = await createEmployeeUser({
       email: input.email.toLowerCase(),
-      passwordHash: hashPassword(input.password),
+      passwordHash: await hashPasswordBcrypt(input.password),
       name: input.name,
       role: input.role,
       locationCode,
@@ -139,7 +131,7 @@ export async function updateUser(input: UpdateInput) {
       role: input.role,
       status: input.status,
       locationCode: input.role === 'superadmin' ? null : nextLocation,
-      passwordHash: input.password ? hashPassword(input.password) : undefined,
+      passwordHash: input.password ? await hashPasswordBcrypt(input.password) : undefined,
     });
 
     if (!updated) {

@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { authRequired, rolesAllowed } from '../middleware/auth.js';
 import { idempotencyRequired } from '../middleware/idempotency.js';
 import { writeAuditLog } from '../repositories/auditRepository.js';
-import { recordDispatch, recordReceipt, recordReservation } from '../services/inventoryService.js';
 import { createStoreOrderDraft, getOrdersForUser, transitionOrder } from '../services/orderService.js';
 
 const createOrderSchema = z.object({
@@ -84,7 +83,6 @@ ordersRouter.patch(
       return res.status(404).json({ code: 'ORDER_NOT_FOUND', message: 'Order not found' });
     }
 
-    await recordReservation(order.id, req.user!.id);
     await writeAuditLog({
       actorUserId: req.user!.id,
       action: 'store_order_confirmed',
@@ -151,7 +149,6 @@ ordersRouter.patch(
       return res.status(404).json({ code: 'ORDER_NOT_FOUND', message: 'Order not found' });
     }
 
-    await recordDispatch(order.id, req.user!.id);
     await writeAuditLog({
       actorUserId: req.user!.id,
       action: 'store_order_dispatched',
@@ -185,7 +182,6 @@ ordersRouter.patch(
       return res.status(404).json({ code: 'ORDER_NOT_FOUND', message: 'Order not found' });
     }
 
-    await recordReceipt(order.id, req.user!.id);
     const completed = await transitionOrder({
       orderId: String(req.params.id),
       actorRole: req.user!.role,

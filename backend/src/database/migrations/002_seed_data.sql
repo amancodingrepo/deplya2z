@@ -19,35 +19,35 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Insert sample products
 INSERT INTO products (id, title, short_name, sku, brand, category, model, color, status, custom_style, image_url) VALUES
-('p1111111-1111-1111-1111-111111111111', 'Samsung 55-inch Smart TV', 'TV-55-SM', 'SKU-TV-001', 'Samsung', 'Electronics', 'QN55Q80C', 'Black', 'present', 'featured', 'https://via.placeholder.com/300'),
-('p2222222-2222-2222-2222-222222222222', 'LG French Door Refrigerator', 'FRIDGE-LG', 'SKU-FR-001', 'LG', 'Appliances', 'LFXS26973S', 'Stainless Steel', 'present', 'default', 'https://via.placeholder.com/300'),
-('p3333333-3333-3333-3333-333333333333', 'Sony Wireless Headphones', 'HP-WH-SN', 'SKU-HP-001', 'Sony', 'Electronics', 'WH-1000XM5', 'Black', 'present', 'premium', 'https://via.placeholder.com/300'),
-('p4444444-4444-4444-4444-444444444444', 'Whirlpool Washing Machine', 'WM-WH', 'SKU-WM-001', 'Whirlpool', 'Appliances', 'WFW9620HC', 'White', 'present', 'default', 'https://via.placeholder.com/300'),
-('p5555555-5555-5555-5555-555555555555', 'Dell Laptop 15 inch', 'LAPTOP-DL', 'SKU-LP-001', 'Dell', 'Computers', 'Inspiron 15', 'Silver', 'present', 'catalogue_ready', 'https://via.placeholder.com/300')
+('11111111-aaaa-4aaa-8aaa-111111111111', 'Samsung 55-inch Smart TV', 'TV-55-SM', 'SKU-TV-001', 'Samsung', 'Electronics', 'QN55Q80C', 'Black', 'present', 'featured', 'https://via.placeholder.com/300'),
+('22222222-bbbb-4bbb-8bbb-222222222222', 'LG French Door Refrigerator', 'FRIDGE-LG', 'SKU-FR-001', 'LG', 'Appliances', 'LFXS26973S', 'Stainless Steel', 'present', 'default', 'https://via.placeholder.com/300'),
+('33333333-cccc-4ccc-8ccc-333333333333', 'Sony Wireless Headphones', 'HP-WH-SN', 'SKU-HP-001', 'Sony', 'Electronics', 'WH-1000XM5', 'Black', 'present', 'premium', 'https://via.placeholder.com/300'),
+('44444444-dddd-4ddd-8ddd-444444444444', 'Whirlpool Washing Machine', 'WM-WH', 'SKU-WM-001', 'Whirlpool', 'Appliances', 'WFW9620HC', 'White', 'present', 'default', 'https://via.placeholder.com/300'),
+('55555555-eeee-4eee-8eee-555555555555', 'Dell Laptop 15 inch', 'LAPTOP-DL', 'SKU-LP-001', 'Dell', 'Computers', 'Inspiron 15', 'Silver', 'present', 'catalogue_ready', 'https://via.placeholder.com/300')
 ON CONFLICT (id) DO NOTHING;
 
 -- Insert sample inventory for warehouse
 INSERT INTO inventory (product_id, location_id, total_stock, reserved_stock, issued_stock) VALUES
-('p1111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 50, 0, 0),
-('p2222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111', 30, 0, 0),
-('p3333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', 100, 0, 0),
-('p4444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111', 25, 0, 0),
-('p5555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111', 40, 0, 0)
+('11111111-aaaa-4aaa-8aaa-111111111111', '11111111-1111-1111-1111-111111111111', 50, 0, 0),
+('22222222-bbbb-4bbb-8bbb-222222222222', '11111111-1111-1111-1111-111111111111', 30, 0, 0),
+('33333333-cccc-4ccc-8ccc-333333333333', '11111111-1111-1111-1111-111111111111', 100, 0, 0),
+('44444444-dddd-4ddd-8ddd-444444444444', '11111111-1111-1111-1111-111111111111', 25, 0, 0),
+('55555555-eeee-4eee-8eee-555555555555', '11111111-1111-1111-1111-111111111111', 40, 0, 0)
 ON CONFLICT (product_id, location_id) DO NOTHING;
 
 -- Insert sample inventory for stores (initially low or zero stock)
 INSERT INTO inventory (product_id, location_id, total_stock, reserved_stock, issued_stock) VALUES
-('p1111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 2, 0, 0),
-('p2222222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222', 1, 0, 0),
-('p3333333-3333-3333-3333-333333333333', '22222222-2222-2222-2222-222222222222', 5, 0, 0),
-('p1111111-1111-1111-1111-111111111111', '33333333-3333-3333-3333-333333333333', 3, 0, 0),
-('p4444444-4444-4444-4444-444444444444', '33333333-3333-3333-3333-333333333333', 1, 0, 0)
+('11111111-aaaa-4aaa-8aaa-111111111111', '22222222-2222-2222-2222-222222222222', 2, 0, 0),
+('22222222-bbbb-4bbb-8bbb-222222222222', '22222222-2222-2222-2222-222222222222', 1, 0, 0),
+('33333333-cccc-4ccc-8ccc-333333333333', '22222222-2222-2222-2222-222222222222', 5, 0, 0),
+('11111111-aaaa-4aaa-8aaa-111111111111', '33333333-3333-3333-3333-333333333333', 3, 0, 0),
+('44444444-dddd-4ddd-8ddd-444444444444', '33333333-3333-3333-3333-333333333333', 1, 0, 0)
 ON CONFLICT (product_id, location_id) DO NOTHING;
 
 -- Insert sample client stores
 INSERT INTO client_stores (id, store_name, owner_name, phone, email, address, gst_number, status) VALUES
-('c1111111-1111-1111-1111-111111111111', 'ABC Retail Store', 'John Doe', '+919876543210', 'john@abcretail.com', '123 Retail Avenue, City Center', '29ABCDE1234F1Z5', 'active'),
-('c2222222-2222-2222-2222-222222222222', 'XYZ Electronics', 'Jane Smith', '+919876543211', 'jane@xyzelectronics.com', '456 Tech Park, IT Hub', '27XYZAB5678G2W6', 'active')
+('aaaaaaaa-1111-4111-8111-aaaaaaaa1111', 'ABC Retail Store', 'John Doe', '+919876543210', 'john@abcretail.com', '123 Retail Avenue, City Center', '29ABCDE1234F1Z5', 'active'),
+('bbbbbbbb-2222-4222-8222-bbbbbbbb2222', 'XYZ Electronics', 'Jane Smith', '+919876543211', 'jane@xyzelectronics.com', '456 Tech Park, IT Hub', '27XYZAB5678G2W6', 'active')
 ON CONFLICT (id) DO NOTHING;
 
 -- Insert audit log entries for seed data creation

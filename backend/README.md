@@ -54,6 +54,29 @@ psql -h localhost -U postgres -d store_warehouse -f src/database/migrations/002_
 npm run dev
 ```
 
+### Neon Quick Setup
+
+```bash
+# 1. Create a Neon project/database and copy the connection string.
+#    Example: postgresql://user:pass@ep-xxx.ap-southeast-1.aws.neon.tech/store_warehouse?sslmode=require
+
+# 2. Set DATABASE_URL in .env
+
+# 3. Apply schema and seed directly to Neon
+psql "$DATABASE_URL" -f src/database/migrations/001_initial_schema.sql
+psql "$DATABASE_URL" -f src/database/migrations/002_seed_data.sql
+
+# 4. Verify API readiness (checks DB connectivity)
+curl http://localhost:8080/ready
+```
+
+If your shell does not expand `$DATABASE_URL` on Windows CMD, run:
+
+```cmd
+psql "%DATABASE_URL%" -f src/database/migrations/001_initial_schema.sql
+psql "%DATABASE_URL%" -f src/database/migrations/002_seed_data.sql
+```
+
 The API will be available at `http://localhost:8080`
 
 ---

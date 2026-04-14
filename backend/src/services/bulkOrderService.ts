@@ -1,4 +1,5 @@
 import { findClientStoreById } from '../repositories/clientStoreRepository.js';
+import { pool } from '../database/connection.js';
 import {
   createBulkOrder,
   findBulkOrderById,
@@ -9,6 +10,7 @@ import { findLocationByCode } from '../repositories/locationRepository.js';
 import { listInventory } from '../repositories/inventoryRepository.js';
 import { AuthorizationError, ConflictAppError, NotFoundError, ValidationAppError } from '../shared/errors.js';
 import type { InventoryRow } from '../types.js';
+import { generateOrderId } from '../utils/helpers.js';
 
 export async function getBulkOrdersForUser(role: string, locationId?: string) {
   return listBulkOrders({ role, locationId: locationId ?? undefined });
@@ -46,9 +48,14 @@ export async function createBulkOrderConfirmed(input: {
     }
   }
 
-  const dateStamp = new Date().toISOString().slice(0, 10).replaceAll('-', '');
-  const seq = String(Math.floor(Math.random() * 9999)).padStart(4, '0');
-  const orderId = `BULK-${input.warehouseId}-${dateStamp}-${seq}`;
+  const countResult = await pool.query(
+    `select count(*)::int as count
+     from bulk_orders bo
+     where bo.warehouse_id = $1 and bo.created_at::date = current_date`,
+    [warehouse.id],
+  );
+  const sequence = Number(countResult.rows[0]?.count ?? 0) + 1;
+  const orderId = generateOrderId('BULK', warehouse.location_code, sequence);
 
   return createBulkOrder({
     orderId,
