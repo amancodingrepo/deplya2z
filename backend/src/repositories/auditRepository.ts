@@ -31,3 +31,40 @@ export async function writeAuditLog(input: {
     ],
   );
 }
+
+export async function create(input: {
+  actor_user_id: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  before_value: string | null;
+  after_value: string | null;
+  details: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  request_id: string | null;
+  success: boolean;
+  error_message: string | null;
+}) {
+  await pool.query(
+    `INSERT INTO audit_logs (
+      actor_user_id, action, entity_type, entity_id,
+      before_value, after_value, details, ip_address, user_agent,
+      request_id, success, error_message
+    ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12)`,
+    [
+      input.actor_user_id,
+      input.action,
+      input.entity_type,
+      input.entity_id,
+      input.before_value,
+      input.after_value,
+      input.details,
+      input.ip_address,
+      input.user_agent,
+      input.request_id,
+      input.success,
+      input.error_message,
+    ]
+  );
+}

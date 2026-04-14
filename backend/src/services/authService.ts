@@ -1,54 +1,53 @@
-import crypto from 'crypto';
-import jwt, { type SignOptions } from 'jsonwebtoken';
-
-import { env } from '../config/env.js';
 import { AuthenticationError } from '../shared/errors.js';
-import { findSessionUserById, findUserByEmailWithPassword } from '../repositories/userRepository.js';
-
-const jwtOptions: SignOptions = {
-  expiresIn: env.jwtExpiresIn as SignOptions['expiresIn'],
-};
-
-function verifyPassword(password: string, passwordHash: string) {
-  const parts = passwordHash.split('$');
-  if (parts.length !== 4 || parts[0] !== 'pbkdf2') {
-    return password === passwordHash;
-  }
-
-  const iterations = Number(parts[1]);
-  const salt = parts[2];
-  const expected = parts[3];
-  const derived = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('hex');
-  return crypto.timingSafeEqual(Buffer.from(derived), Buffer.from(expected));
-}
+import { findSessionUserById, findUserByEmailWithPassword, updateLastLogin } from '../repositories/userRepository.js';
+import { comparePassword } from '../utils/crypto.js';
+import { generateToken } from '../utils/jwt.js';
+import logger from '../utils/logger.js';
 
 export async function login(email: string, password: string) {
   const user = await findUserByEmailWithPassword(email);
   if (!user) {
+    logger.warn({ email }, 'Login attempt with invalid email');
     throw new AuthenticationError('Invalid credentials', 'INVALID_CREDENTIALS');
   }
 
   if (user.status !== 'active') {
-    throw new AuthenticationError('Account is inactive', 'ACCOUNT_LOCKED');
+    logger.warn({ userId: user.id, status: user.status }, 'Login attempt with inactive account');
+    throw new AuthenticationError('Account is inactive or blocked', 'ACCOUNT_LOCKED');
   }
 
-  const passwordHash = String(user.password_hash ?? process.env.SEED_PASSWORD_HASH ?? '');
-  const valid = verifyPassword(password, passwordHash);
-  if (!valid) {
+  const passwordHash = String(user.password_hash ?? '');
+  if (!passwordHash) {
+    logger.error({ userId: user.id }, 'User has no password hash');
     throw new AuthenticationError('Invalid credentials', 'INVALID_CREDENTIALS');
   }
 
-  const token = jwt.sign(
-    { userId: user.id, role: user.role, location_id: user.location_code ?? null },
-    env.jwtSecret,
-    jwtOptions,
-  );
+  const valid = await comparePassword(password, passwordHash);
+  if (!valid) {
+    logger.warn({ userId: user.id, email }, 'Login attempt with invalid password');
+    throw new AuthenticationError('Invalid credentials', 'INVALID_CREDENTIALS');
+  }
+
+  // Update last login timestamp
+  await updateLastLogin(user.id);
+
+  const token = generateToken({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    location_id: user.location_id ?? null,
+  });
+
+  logger.info({ userId: user.id, email, role: user.role }, 'User logged in successfully');
 
   return {
     token,
     user: {
-      ...user,
-      location_id: user.location_code ?? null,
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      location_id: user.location_id ?? null,
     },
   };
 }
@@ -58,16 +57,35 @@ export async function refresh(tokenPayload: { userId: string }) {
   if (!user) {
     throw new AuthenticationError('Invalid token', 'INVALID_TOKEN');
   }
-  const token = jwt.sign(
-    { userId: user.id, role: user.role, location_id: user.location_code ?? null },
-    env.jwtSecret,
-    jwtOptions,
-  );
+
+  if (user.status !== 'active') {
+    throw new AuthenticationError('Account is inactive or blocked', 'ACCOUNT_LOCKED');
+  }
+
+  const token = generateToken({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    location_id: user.location_id ?? null,
+  });
+
+  logger.info({ userId: user.id }, 'Token refreshed');
+
   return {
     token,
     user: {
-      ...user,
-      location_id: user.location_code ?? null,
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      location_id: user.location_id ?? null,
     },
   };
+}
+
+export async function logout(token: string) {
+  // Optional: Implement token blacklisting with Redis
+  // For now, tokens expire naturally based on JWT expiry
+  logger.info('User logged out');
+  return { success: true };
 }

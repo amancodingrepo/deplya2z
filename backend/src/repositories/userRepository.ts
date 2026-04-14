@@ -220,3 +220,10 @@ export async function updateEmployeeUser(
   );
   return findEmployeeUserById(id);
 }
+
+export async function updateLastLogin(userId: string): Promise<void> {
+  await pool.query(
+    `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
+    [userId]
+  );
+}
