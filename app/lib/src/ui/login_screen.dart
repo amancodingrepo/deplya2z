@@ -15,8 +15,10 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen>
     with SingleTickerProviderStateMixin {
-  final _emailController = TextEditingController(text: 'warehouse@company.com');
-  final _passwordController = TextEditingController(text: '1234');
+  final _emailController = TextEditingController(
+    text: 'warehouse@storewarehouse.com',
+  );
+  final _passwordController = TextEditingController(text: 'password123');
   UserRole _selectedRole = UserRole.warehouseManager;
   bool _obscurePassword = true;
 
@@ -55,11 +57,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              Color(0xFF0D0D1A),
-              Color(0xFF16213E),
-              Color(0xFF0D0D1A),
-            ],
+            colors: [Color(0xFF0D0D1A), Color(0xFF16213E), Color(0xFF0D0D1A)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -105,10 +103,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                         Text(
                           'Supply Management System',
                           textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppTheme.primaryLight,
-                            fontWeight: FontWeight.w500,
-                          ),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: AppTheme.primaryLight,
+                                fontWeight: FontWeight.w500,
+                              ),
                         ),
                         const SizedBox(height: 36),
 
@@ -117,9 +116,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           padding: const EdgeInsets.all(24),
                           decoration: BoxDecoration(
                             color: AppTheme.bgCard,
-                            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.radiusLg,
+                            ),
                             border: Border.all(
-                              color: AppTheme.surfaceLight.withValues(alpha: 0.4),
+                              color: AppTheme.surfaceLight.withValues(
+                                alpha: 0.4,
+                              ),
                             ),
                             boxShadow: AppTheme.cardShadow,
                           ),
@@ -128,7 +131,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             children: [
                               Text(
                                 'Sign In',
-                                style: Theme.of(context).textTheme.headlineSmall,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.headlineSmall,
                               ),
                               const SizedBox(height: 6),
                               const Text(
@@ -144,7 +149,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                               TextField(
                                 controller: _emailController,
                                 keyboardType: TextInputType.emailAddress,
-                                style: const TextStyle(color: AppTheme.textPrimary),
+                                style: const TextStyle(
+                                  color: AppTheme.textPrimary,
+                                ),
                                 decoration: const InputDecoration(
                                   labelText: 'Email',
                                   prefixIcon: Icon(
@@ -160,7 +167,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                               TextField(
                                 controller: _passwordController,
                                 obscureText: _obscurePassword,
-                                style: const TextStyle(color: AppTheme.textPrimary),
+                                style: const TextStyle(
+                                  color: AppTheme.textPrimary,
+                                ),
                                 decoration: InputDecoration(
                                   labelText: 'Password',
                                   prefixIcon: const Icon(
@@ -177,7 +186,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                       color: AppTheme.textMuted,
                                     ),
                                     onPressed: () => setState(
-                                      () => _obscurePassword = !_obscurePassword,
+                                      () =>
+                                          _obscurePassword = !_obscurePassword,
                                     ),
                                   ),
                                 ),
@@ -202,10 +212,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                     : () {
                                         ref
                                             .read(
-                                                appControllerProvider.notifier)
+                                              appControllerProvider.notifier,
+                                            )
                                             .login(
-                                              email:
-                                                  _emailController.text.trim(),
+                                              email: _emailController.text
+                                                  .trim(),
                                               password:
                                                   _passwordController.text,
                                               role: _selectedRole,
@@ -237,11 +248,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
                         // Hint
                         Text(
-                          'Use admin@company.com, warehouse@company.com, or store@company.com',
+                          'Use admin@storewarehouse.com, warehouse@storewarehouse.com, or store1@storewarehouse.com',
                           textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppTheme.textMuted,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppTheme.textMuted),
                         ),
                       ],
                     ),
@@ -369,10 +379,7 @@ class _StatusMessage extends StatelessWidget {
           Icon(icon, color: color, size: 18),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              text,
-              style: TextStyle(color: color, fontSize: 13),
-            ),
+            child: Text(text, style: TextStyle(color: color, fontSize: 13)),
           ),
         ],
       ),

@@ -32,4 +32,14 @@ The app consumes the shared REST endpoints:
 
 	flutter run --dart-define=API_BASE_URL=http://localhost:8080
 
+For Android emulator, localhost is auto-mapped to `10.0.2.2` by the app API client.
+
+Demo users:
+
+- admin@storewarehouse.com / password123
+- warehouse@storewarehouse.com / password123
+- warehouse2@storewarehouse.com / password123
+- store1@storewarehouse.com / password123
+- store3@storewarehouse.com / password123
+
 If API is unavailable, login and online sync fail with backend errors while local cached data remains available.

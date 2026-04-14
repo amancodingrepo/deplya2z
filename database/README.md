@@ -17,3 +17,20 @@ This folder contains SQL artifacts for the shared backend used by:
 - Use transactional locks (`SELECT ... FOR UPDATE`) during approve/dispatch/receive stock transitions.
 - Store idempotency responses in Redis for 24-hour TTL and keep audit rows in PostgreSQL.
 - Current scaffold stores idempotency replay payloads in PostgreSQL `idempotency_logs` (Redis recommended for production scale).
+
+## Neon Setup
+
+Run these commands from [backend](backend):
+
+```bash
+# Use your Neon connection string with sslmode=require
+psql "$DATABASE_URL" -f src/database/migrations/001_initial_schema.sql
+psql "$DATABASE_URL" -f src/database/migrations/002_seed_data.sql
+```
+
+Local-only alternative using this folder:
+
+```bash
+psql "$DATABASE_URL" -f database/schema.sql
+psql "$DATABASE_URL" -f database/seed.sql
+```

@@ -16,6 +16,15 @@ class AppController extends StateNotifier<AppState> {
   final MockApi _api;
   final _uuid = const Uuid();
 
+  String _defaultWarehouseRef() {
+    for (final location in state.locations) {
+      if (location.type == 'warehouse') {
+        return location.code;
+      }
+    }
+    return 'WH01';
+  }
+
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
   Future<void> initialize() async {
@@ -131,8 +140,12 @@ class AppController extends StateNotifier<AppState> {
       }
 
       final products = await _api.fetchProducts(session.token);
-      final inventory = await _api.fetchInventory(session.locationId, session.token);
+      final inventory = await _api.fetchInventory(
+        session.locationId,
+        session.token,
+      );
       final orders = await _api.fetchOrders(session);
+      final locations = await _api.fetchLocations(session.token);
 
       await _store.replaceInventory(inventory);
       await _store.replaceOrders(orders);
@@ -142,8 +155,8 @@ class AppController extends StateNotifier<AppState> {
         products: products,
         inventory: inventory,
         orders: orders,
+        locations: locations,
         employees: const <EmployeeUser>[],
-        locations: const <AppLocation>[],
       );
     } catch (error) {
       state = state.copyWith(
@@ -184,17 +197,20 @@ class AppController extends StateNotifier<AppState> {
     final session = state.session;
     if (session == null) return;
     if (session.role != UserRole.storeManager) {
-      state = state.copyWith(message: 'Only store manager can create order requests.');
+      state = state.copyWith(
+        message: 'Only store manager can create order requests.',
+      );
       return;
     }
 
     final now = DateTime.now();
+    final warehouseRef = _defaultWarehouseRef();
 
     if (state.isOnline) {
       try {
         await _api.createOrderOnline(
           session: session,
-          warehouseId: 'WH01',
+          warehouseId: warehouseRef,
           productId: productId,
           quantity: quantity,
           idempotencyKey: _uuid.v4(),
@@ -214,7 +230,7 @@ class AppController extends StateNotifier<AppState> {
       orderId:
           'ORD-ST01-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.millisecond.toString().padLeft(4, '0')}',
       storeId: session.locationId,
-      warehouseId: 'WH01',
+      warehouseId: warehouseRef,
       status: OrderStatus.draft,
       items: [
         OrderItem(
@@ -240,7 +256,7 @@ class AppController extends StateNotifier<AppState> {
       entityId: order.id,
       payload: {
         'storeId': session.locationId,
-        'warehouseId': 'WH01',
+        'warehouseId': warehouseRef,
         'items': [
           {'product_id': productId, 'qty': quantity},
         ],
@@ -263,7 +279,9 @@ class AppController extends StateNotifier<AppState> {
     final session = state.session;
     if (session == null) return;
     if (session.role == UserRole.superadmin) {
-      state = state.copyWith(message: 'Superadmin cannot change order state from mobile app.');
+      state = state.copyWith(
+        message: 'Superadmin cannot change order state from mobile app.',
+      );
       return;
     }
 

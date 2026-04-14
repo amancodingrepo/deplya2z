@@ -16,15 +16,20 @@ export class NotificationService {
    */
   async queue(type: string, data: NotificationData): Promise<void> {
     try {
-      await notificationQueue.add(
-        { type, data },
-        {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: true,
-          removeOnFail: false,
-        }
-      );
+      await Promise.race([
+        notificationQueue.add(
+          { type, data },
+          {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
+            removeOnComplete: true,
+            removeOnFail: false,
+          },
+        ),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Notification queue timeout')), 750),
+        ),
+      ]);
 
       logger.info({ type, data }, 'Notification queued');
     } catch (error) {

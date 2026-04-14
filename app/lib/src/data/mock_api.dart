@@ -1,4 +1,7 @@
+import 'dart:io' show Platform;
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/models.dart';
@@ -7,10 +10,7 @@ class MockApi {
   MockApi()
     : _dio = Dio(
         BaseOptions(
-          baseUrl: const String.fromEnvironment(
-            'API_BASE_URL',
-            defaultValue: 'http://localhost:8080/v1',
-          ),
+          baseUrl: _resolveBaseUrl(),
           connectTimeout: const Duration(seconds: 8),
           receiveTimeout: const Duration(seconds: 8),
         ),
@@ -18,6 +18,29 @@ class MockApi {
 
   final _uuid = const Uuid();
   final Dio _dio;
+
+  static String _resolveBaseUrl() {
+    final configured = const String.fromEnvironment(
+      'API_BASE_URL',
+      defaultValue: 'http://localhost:8080/v1',
+    );
+
+    if (kIsWeb) {
+      return configured;
+    }
+
+    final uri = Uri.tryParse(configured);
+    if (uri == null) {
+      return configured;
+    }
+
+    // Android emulator cannot reach host machine through localhost.
+    if (Platform.isAndroid && uri.host == 'localhost') {
+      return uri.replace(host: '10.0.2.2').toString();
+    }
+
+    return configured;
+  }
 
   String _errorMessage(Object error) {
     if (error is DioException) {
@@ -184,13 +207,15 @@ class MockApi {
           },
         );
 
-        final items = (json['items'] as List<dynamic>)
+        final items = (json['items'] as List<dynamic>? ?? const <dynamic>[])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .map(
               (it) => OrderItem(
                 productId: it['product_id'] as String,
-                title: it['title'] as String,
-                sku: it['sku'] as String,
+                title:
+                    (it['title'] ?? it['product_id'] ?? 'Unknown Item')
+                        as String,
+                sku: (it['sku'] ?? 'NA') as String,
                 quantity: (it['qty'] as num).toInt(),
               ),
             )
@@ -298,7 +323,10 @@ class MockApi {
       );
       final rows = response.data ?? <dynamic>[];
       return rows
-          .map((row) => AppLocation.fromJson(Map<String, dynamic>.from(row as Map)))
+          .map(
+            (row) =>
+                AppLocation.fromJson(Map<String, dynamic>.from(row as Map)),
+          )
           .toList();
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -313,7 +341,10 @@ class MockApi {
       );
       final rows = response.data ?? <dynamic>[];
       return rows
-          .map((row) => EmployeeUser.fromJson(Map<String, dynamic>.from(row as Map)))
+          .map(
+            (row) =>
+                EmployeeUser.fromJson(Map<String, dynamic>.from(row as Map)),
+          )
           .toList();
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -379,7 +410,8 @@ class MockApi {
       color: 'Titan Black',
       status: 'present',
       customStyle: 'premium',
-      imageUrl: 'https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=300&h=300&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1593359677879-a4bb92f829d1?w=300&h=300&fit=crop',
     ),
     const Product(
       id: 'P002',
@@ -392,7 +424,8 @@ class MockApi {
       color: 'Shiny Steel',
       status: 'present',
       customStyle: 'featured',
-      imageUrl: 'https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?w=300&h=300&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1571175443880-49e1d25b2bc5?w=300&h=300&fit=crop',
     ),
     const Product(
       id: 'P003',
@@ -405,7 +438,8 @@ class MockApi {
       color: 'Midnight Blue',
       status: 'present',
       customStyle: 'premium',
-      imageUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&h=300&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&h=300&fit=crop',
     ),
     const Product(
       id: 'P004',
@@ -418,7 +452,8 @@ class MockApi {
       color: 'Space Black',
       status: 'present',
       customStyle: 'premium',
-      imageUrl: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=300&h=300&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=300&h=300&fit=crop',
     ),
     const Product(
       id: 'P005',
@@ -431,7 +466,8 @@ class MockApi {
       color: 'Yellow Nickel',
       status: 'present',
       customStyle: 'featured',
-      imageUrl: 'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=300&h=300&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=300&h=300&fit=crop',
     ),
     const Product(
       id: 'P006',
@@ -444,7 +480,8 @@ class MockApi {
       color: 'Titanium Violet',
       status: 'present',
       customStyle: 'premium',
-      imageUrl: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=300&h=300&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=300&h=300&fit=crop',
     ),
     const Product(
       id: 'P007',
@@ -457,7 +494,8 @@ class MockApi {
       color: 'Silver',
       status: 'present',
       customStyle: 'default',
-      imageUrl: 'https://images.unsplash.com/photo-1626806787461-102c1bfaaea1?w=300&h=300&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1626806787461-102c1bfaaea1?w=300&h=300&fit=crop',
     ),
     const Product(
       id: 'P008',
@@ -470,7 +508,8 @@ class MockApi {
       color: 'Matte Black',
       status: 'present',
       customStyle: 'featured',
-      imageUrl: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=300&h=300&fit=crop',
+      imageUrl:
+          'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=300&h=300&fit=crop',
     ),
   ];
 

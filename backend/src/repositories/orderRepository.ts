@@ -34,7 +34,7 @@ export async function listOrders(params: { role: string; locationId?: string }) 
 }
 
 export async function findOrderById(id: string) {
-  const result = await pool.query('select * from store_orders where id = $1 or order_id = $1 limit 1', [id]);
+  const result = await pool.query('select * from store_orders where id::text = $1 or order_id = $1 limit 1', [id]);
   return result.rows[0] ? mapOrder(result.rows[0]) : null;
 }
 
@@ -57,12 +57,12 @@ export async function createOrder(input: {
 export async function updateOrderStatus(id: string, status: OrderStatus, approvedBy?: string) {
   const result = await pool.query(
     `update store_orders
-     set status = $2,
-         approved_by = coalesce($3, approved_by),
-         dispatched_at = case when $2 = 'dispatched' then now() else dispatched_at end,
-         received_at = case when $2 = 'store_received' then now() else received_at end,
+     set status = $2::varchar,
+         approved_by = coalesce($3::uuid, approved_by),
+         dispatched_at = case when $2::varchar = 'dispatched' then now() else dispatched_at end,
+         received_at = case when $2::varchar = 'store_received' then now() else received_at end,
          updated_at = now()
-     where id = $1 or order_id = $1
+     where id::text = $1::text or order_id = $1::text
      returning *`,
     [id, status, approvedBy ?? null],
   );

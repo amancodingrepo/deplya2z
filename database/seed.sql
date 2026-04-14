@@ -8,9 +8,9 @@ ON CONFLICT (location_code) DO NOTHING;
 
 INSERT INTO users (id, email, password_hash, name, role, location_id, status)
 VALUES
-  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'admin@company.com', 'pbkdf2$100000$store-warehouse-salt$82e8f9eb4e5f8fba36d64c1206488b27cd1212ca4de083ac735b0d1b1f2e096b', 'System Admin', 'superadmin', NULL, 'active'),
-  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'warehouse@company.com', 'pbkdf2$100000$store-warehouse-salt$82e8f9eb4e5f8fba36d64c1206488b27cd1212ca4de083ac735b0d1b1f2e096b', 'Warehouse Manager', 'warehouse_manager', '11111111-1111-1111-1111-111111111111', 'active'),
-  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'store@company.com', 'pbkdf2$100000$store-warehouse-salt$82e8f9eb4e5f8fba36d64c1206488b27cd1212ca4de083ac735b0d1b1f2e096b', 'Store Manager', 'store_manager', '22222222-2222-2222-2222-222222222222', 'active')
+  ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'admin@storewarehouse.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5aeWZL.HlYigu', 'System Admin', 'superadmin', NULL, 'active'),
+  ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'warehouse@storewarehouse.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5aeWZL.HlYigu', 'Warehouse Manager', 'warehouse_manager', '11111111-1111-1111-1111-111111111111', 'active'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'store1@storewarehouse.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5aeWZL.HlYigu', 'Store Manager', 'store_manager', '22222222-2222-2222-2222-222222222222', 'active')
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO products (id, title, sku, brand, status)

@@ -32,7 +32,7 @@ export async function listBulkOrders(params: { role: string; locationId?: string
 }
 
 export async function findBulkOrderById(id: string) {
-  const result = await pool.query('select * from bulk_orders where id = $1 or order_id = $1 limit 1', [id]);
+  const result = await pool.query('select * from bulk_orders where id::text = $1 or order_id = $1 limit 1', [id]);
   return result.rows[0] ? mapBulkOrder(result.rows[0]) : null;
 }
 
@@ -70,10 +70,10 @@ export async function createBulkOrder(input: {
 export async function updateBulkOrderStatus(id: string, status: BulkOrderStatus) {
   const result = await pool.query(
     `update bulk_orders
-     set status = $2,
-         dispatched_at = case when $2 = 'dispatched' then now() else dispatched_at end,
+     set status = $2::varchar,
+         dispatched_at = case when $2::varchar = 'dispatched' then now() else dispatched_at end,
          updated_at = now()
-     where id = $1 or order_id = $1
+     where id::text = $1::text or order_id = $1::text
      returning *`,
     [id, status],
   );

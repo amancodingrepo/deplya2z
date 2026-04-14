@@ -18,10 +18,43 @@ import { usersRouter } from './routes/users.js';
 
 const logger = pino({ level: env.logLevel });
 
+function isLocalDevOrigin(origin: string) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+}
+
+function buildCorsOriginChecker() {
+  const configuredOrigins = env.corsOrigin
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+
+  return (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    const explicitlyAllowed =
+      configuredOrigins.includes('*') || configuredOrigins.includes(origin);
+
+    if (explicitlyAllowed) {
+      callback(null, true);
+      return;
+    }
+
+    if (env.nodeEnv !== 'production' && isLocalDevOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('Not allowed by CORS'));
+  };
+}
+
 export function createApp() {
   const app = express();
   app.use(helmet());
-  app.use(cors({ origin: env.corsOrigin }));
+  app.use(cors({ origin: buildCorsOriginChecker() }));
   app.use(rateLimit({ windowMs: 60_000, limit: 120 }));
   app.use((req, _res, next) => {
     logger.info({ method: req.method, url: req.url }, 'request');
