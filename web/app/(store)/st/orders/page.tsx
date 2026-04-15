@@ -1,55 +1,87 @@
-import { PageHeader } from '../../../../components/ui/page-header';
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
 import { Card } from '../../../../components/ui/card';
 import { Badge, statusToBadgeVariant } from '../../../../components/ui/badge';
 import { Button } from '../../../../components/ui/button';
+import { Tabs } from '../../../../components/ui/tabs';
+import { Dialog } from '../../../../components/ui/dialog';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell, TableEmpty } from '../../../../components/ui/table';
 import { PlusIcon } from '../../../../components/layout/icons';
 
-const orders = [
-  { id: 'ORD-ST01-20260412-0001', items: '5× Samsung TV, 3× LG Monitor', status: 'dispatched', created: 'Apr 12, 10:30 AM' },
-  { id: 'ORD-ST01-20260411-0005', items: '2× Samsung TV', status: 'completed', created: 'Apr 11, 2:00 PM' },
-  { id: 'ORD-ST01-20260410-0003', items: '10× LG Fridge', status: 'draft', created: 'Apr 10, 9:00 AM' },
-  { id: 'ORD-ST01-20260409-0007', items: '8× iPhone 15', status: 'completed', created: 'Apr 9, 9:00 AM' },
-  { id: 'ORD-ST01-20260408-0002', items: '1× Dell XPS 15', status: 'cancelled', created: 'Apr 8, 4:00 PM' },
+const allOrders = [
+  { id: 'ORD-ST01-0001', items: '5× Samsung TV, 3× LG Monitor', status: 'dispatched', created: 'Apr 12, 10:30 AM' },
+  { id: 'ORD-ST01-0008', items: '10× LG Fridge', status: 'confirmed', created: 'Apr 12, 8:00 AM' },
+  { id: 'ORD-ST01-0009', items: '4× Dell XPS 15', status: 'packed', created: 'Apr 11, 5:00 PM' },
+  { id: 'ORD-ST01-0010', items: '6× Sony Headphones', status: 'draft', created: 'Apr 11, 3:00 PM' },
+  { id: 'ORD-ST01-0005', items: '2× Samsung TV', status: 'completed', created: 'Apr 10, 2:00 PM' },
+  { id: 'ORD-ST01-0007', items: '8× iPhone 15', status: 'completed', created: 'Apr 9, 9:00 AM' },
+  { id: 'ORD-ST01-0002', items: '1× Dell XPS 15', status: 'cancelled', created: 'Apr 8, 4:00 PM' },
 ];
 
 const statusLabels: Record<string, string> = {
-  draft: 'Awaiting Approval', confirmed: 'Confirmed', packed: 'Warehouse Packing',
+  draft: 'Awaiting Approval', confirmed: 'Confirmed', packed: 'Being Packed',
   dispatched: 'On the Way', store_received: 'Received', completed: 'Completed', cancelled: 'Cancelled',
 };
 
+type TabValue = 'active' | 'all' | 'completed';
+type ModalState = { type: 'receive' | 'cancel'; orderId: string } | null;
+
+const activeStatuses = ['draft', 'confirmed', 'packed', 'dispatched', 'store_received'];
+
 export default function MyOrdersPage() {
+  const [tab, setTab] = useState<TabValue>('active');
+  const [modal, setModal] = useState<ModalState>(null);
+
+  const activeCount = allOrders.filter(o => activeStatuses.includes(o.status)).length;
+  const completedCount = allOrders.filter(o => ['completed', 'cancelled'].includes(o.status)).length;
+  const dispatchedCount = allOrders.filter(o => o.status === 'dispatched').length;
+
+  const filtered = allOrders.filter((o) => {
+    if (tab === 'active') return activeStatuses.includes(o.status);
+    if (tab === 'completed') return ['completed', 'cancelled'].includes(o.status);
+    return true;
+  });
+
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
-        title="My Orders"
-        description="All order requests from Store 01"
-        breadcrumb={[{ label: 'Dashboard', href: '/st/dashboard' }, { label: 'My Orders' }]}
-        actions={
-          <a href="/st/orders/create">
-            <Button size="sm"><PlusIcon /> New Request</Button>
-          </a>
-        }
+    <div className="flex flex-col gap-5">
+      {/* Page Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[12px] text-muted-foreground mb-1">
+            <Link href="/st/dashboard" className="hover:text-foreground transition-colors">Dashboard</Link>
+            <span className="mx-1.5">·</span>
+            <span className="text-foreground">My Orders</span>
+          </p>
+          <h1 className="text-[20px] font-semibold text-foreground">My Orders</h1>
+          <p className="text-[13px] text-muted-foreground mt-0.5">All order requests from Store 01</p>
+        </div>
+        <Link href="/st/orders/create">
+          <Button size="sm"><PlusIcon /> New Request</Button>
+        </Link>
+      </div>
+
+      {/* Incoming banner */}
+      {dispatchedCount > 0 && (
+        <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary-subtle px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Badge variant="primary" dot>{dispatchedCount} order on the way</Badge>
+            <span className="text-[13px] text-foreground">Confirm receipt when items arrive</span>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <Tabs
+        tabs={[
+          { value: 'active', label: 'Active', count: activeCount },
+          { value: 'completed', label: 'Completed', count: completedCount },
+          { value: 'all', label: 'All Orders', count: allOrders.length },
+        ]}
+        active={tab}
+        onChange={setTab}
       />
-
-      {/* Status filter tabs */}
-      <div className="flex items-center gap-1 border-b border-border pb-0">
-        {['All', 'Active', 'Completed', 'Cancelled'].map((tab) => (
-          <button
-            key={tab}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === 'All' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* Dispatched banner */}
-      <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary-subtle px-4 py-3">
-        <p className="text-sm text-foreground">
-          <span className="font-semibold text-primary">1 order</span> is on the way — confirm receipt when items arrive
-        </p>
-      </div>
 
       <Card>
         <Table>
@@ -63,26 +95,33 @@ export default function MyOrdersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {orders.length === 0 ? (
-              <TableEmpty colSpan={5}>No orders yet. <a href="/st/orders/create" className="text-primary hover:underline">Create your first request</a>.</TableEmpty>
+            {filtered.length === 0 ? (
+              <TableEmpty colSpan={5}>
+                No orders yet.{' '}
+                <Link href="/st/orders/create" className="text-primary hover:underline">
+                  Create your first request
+                </Link>
+              </TableEmpty>
             ) : (
-              orders.map((o) => (
+              filtered.map((o) => (
                 <TableRow key={o.id}>
-                  <TableCell className="font-mono text-xs font-medium">{o.id}</TableCell>
-                  <TableCell className="text-muted-foreground">{o.items}</TableCell>
+                  <TableCell className="font-mono text-[12px] font-medium text-foreground">{o.id}</TableCell>
+                  <TableCell className="text-muted-foreground max-w-[240px] truncate">{o.items}</TableCell>
                   <TableCell>
-                    <Badge variant={statusToBadgeVariant(o.status)} dot>
-                      {statusLabels[o.status]}
-                    </Badge>
+                    <Badge variant={statusToBadgeVariant(o.status)} dot>{statusLabels[o.status]}</Badge>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{o.created}</TableCell>
+                  <TableCell className="text-[12px] text-muted-foreground whitespace-nowrap">{o.created}</TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1.5">
                       {o.status === 'dispatched' && (
-                        <Button size="sm">Confirm Receipt</Button>
+                        <Button size="sm" onClick={() => setModal({ type: 'receive', orderId: o.id })}>
+                          Confirm Receipt
+                        </Button>
                       )}
                       {o.status === 'draft' && (
-                        <Button size="sm" variant="destructive">Cancel</Button>
+                        <Button size="sm" variant="outline" onClick={() => setModal({ type: 'cancel', orderId: o.id })}>
+                          Cancel
+                        </Button>
                       )}
                       <Button size="sm" variant="ghost">Details</Button>
                     </div>
@@ -93,6 +132,29 @@ export default function MyOrdersPage() {
           </TableBody>
         </Table>
       </Card>
+
+      <div className="text-[12px] text-muted-foreground">
+        Showing {filtered.length} of {allOrders.length} orders
+      </div>
+
+      {/* Modals */}
+      <Dialog
+        open={modal?.type === 'receive'}
+        onClose={() => setModal(null)}
+        title="Confirm Receipt"
+        description={`Confirm that all items in ${modal?.orderId} have been received and are in good condition.`}
+        confirmLabel="Confirm Receipt"
+        onConfirm={() => console.log('Received', modal?.orderId)}
+      />
+      <Dialog
+        open={modal?.type === 'cancel'}
+        onClose={() => setModal(null)}
+        title="Cancel Order"
+        description={`Cancel ${modal?.orderId}? This cannot be undone.`}
+        confirmLabel="Cancel Order"
+        confirmVariant="destructive"
+        onConfirm={() => console.log('Cancelled', modal?.orderId)}
+      />
     </div>
   );
 }

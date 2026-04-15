@@ -37,9 +37,10 @@ export default function StoreLayout({ children }: { children: ReactNode }) {
     <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar
         groups={navGroups}
-        role="store_manager"
         roleName="Store Manager"
         locationName="Store 01 (ST01)"
+        userName="Priya Sharma"
+        userInitials="PS"
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header userName="Priya Sharma" userRole="store_manager" />

@@ -38,9 +38,10 @@ export default function WarehouseLayout({ children }: { children: ReactNode }) {
     <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar
         groups={navGroups}
-        role="warehouse_manager"
         roleName="Warehouse Manager"
         locationName="Main Warehouse (WH01)"
+        userName="Sam Park"
+        userInitials="SP"
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header userName="Sam Park" userRole="warehouse_manager" />

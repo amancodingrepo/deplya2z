@@ -53,8 +53,9 @@ export default function SuperadminLayout({ children }: { children: ReactNode }) 
     <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar
         groups={navGroups}
-        role="superadmin"
         roleName="Super Admin"
+        userName="Alex Johnson"
+        userInitials="AJ"
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header userName="Alex Johnson" userRole="superadmin" />
