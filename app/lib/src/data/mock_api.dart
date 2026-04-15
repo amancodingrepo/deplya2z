@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/models.dart';
@@ -298,6 +299,7 @@ class MockApi {
     required OrderStatus target,
   }) async {
     final endpoint = switch (target) {
+      OrderStatus.confirmed => '/orders/$orderRef/approve',
       OrderStatus.packed => '/orders/$orderRef/pack',
       OrderStatus.dispatched => '/orders/$orderRef/dispatch',
       OrderStatus.storeReceived ||
@@ -394,6 +396,197 @@ class MockApi {
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
+  }
+
+  Future<void> deleteEmployeeUser({
+    required String token,
+    required String userId,
+  }) async {
+    try {
+      await _dio.delete<void>('/users/$userId', options: _authOptions(token));
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<InventoryItem> createInventoryItem({
+    required String token,
+    required String locationId,
+    required String sku,
+    required String title,
+    required String brand,
+    required int totalStock,
+    String? category,
+    String? model,
+    String? color,
+    List<int>? imageBytes,
+    String? imageFilename,
+  }) async {
+    try {
+      final form = FormData.fromMap({
+        'location_id': locationId,
+        'sku': sku,
+        'title': title,
+        'brand': brand,
+        'category': category ?? '',
+        'model': model ?? '',
+        'color': color ?? '',
+        'total_stock': totalStock,
+        if (imageBytes != null)
+          'image': MultipartFile.fromBytes(
+            imageBytes,
+            filename: imageFilename ?? 'inventory.jpg',
+            contentType: MediaType('image', 'jpeg'),
+          ),
+      });
+
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/inventory',
+        options: _authOptions(token),
+        data: form,
+      );
+      final json = response.data ?? <String, dynamic>{};
+      return _inventoryFromApi(json);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<InventoryItem> updateInventoryItem({
+    required String token,
+    required String productRef,
+    required String locationId,
+    int? totalStock,
+    int? reservedStock,
+    int? issuedStock,
+    String? title,
+    String? brand,
+    String? category,
+    String? model,
+    String? color,
+    String? status,
+    List<int>? imageBytes,
+    String? imageFilename,
+  }) async {
+    try {
+      final form = FormData.fromMap({
+        'location_id': locationId,
+        if (totalStock != null) 'total_stock': totalStock,
+        if (reservedStock != null) 'reserved_stock': reservedStock,
+        if (issuedStock != null) 'issued_stock': issuedStock,
+        if (title != null) 'title': title,
+        if (brand != null) 'brand': brand,
+        if (category != null) 'category': category,
+        if (model != null) 'model': model,
+        if (color != null) 'color': color,
+        if (status != null) 'status': status,
+        if (imageBytes != null)
+          'image': MultipartFile.fromBytes(
+            imageBytes,
+            filename: imageFilename ?? 'inventory.jpg',
+            contentType: MediaType('image', 'jpeg'),
+          ),
+      });
+
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/inventory/$productRef',
+        options: _authOptions(token),
+        data: form,
+      );
+      final json = response.data ?? <String, dynamic>{};
+      return _inventoryFromApi(json);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<void> deleteInventoryItem({
+    required String token,
+    required String productRef,
+    required String locationId,
+  }) async {
+    try {
+      await _dio.delete<void>(
+        '/inventory/$productRef',
+        queryParameters: {'location_id': locationId},
+        options: _authOptions(token),
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<StaffRecordsBundle> fetchMyStaffRecords(String token) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/staff/me',
+        options: _authOptions(token),
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return StaffRecordsBundle.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<StaffRecordsBundle> fetchStaffRecordsForAdmin({
+    required String token,
+    String? userId,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/staff/records',
+        queryParameters: {
+          if (userId != null && userId.isNotEmpty) 'user_id': userId,
+        },
+        options: _authOptions(token),
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return StaffRecordsBundle.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<AttendanceRecord> addAttendance({
+    required String token,
+    required String userId,
+    required DateTime date,
+    required AttendanceStatus status,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/staff/attendance',
+        options: _authOptions(token),
+        data: {
+          'user_id': userId,
+          'attendance_date': date.toIso8601String().split('T').first,
+          'status': status.apiValue,
+        },
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return AttendanceRecord.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  InventoryItem _inventoryFromApi(Map<String, dynamic> json) {
+    return InventoryItem(
+      productId: json['product_id'] as String,
+      sku: json['sku'] as String,
+      title: json['title'] as String,
+      locationId: json['location_id'] as String,
+      availableStock: (json['available_stock'] as num).toInt(),
+      reservedStock: (json['reserved_stock'] as num).toInt(),
+      totalStock: (json['total_stock'] as num).toInt(),
+      cachedAt: DateTime.now(),
+      brand: (json['brand'] ?? '') as String,
+      category: (json['category'] ?? '') as String,
+      model: (json['model'] ?? '') as String,
+      color: (json['color'] ?? '') as String,
+      imageUrl: json['image_url'] as String?,
+    );
   }
 
   // ─── Rich mock product catalog ──────────────────────────────────

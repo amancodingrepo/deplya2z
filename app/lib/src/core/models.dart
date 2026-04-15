@@ -14,6 +14,38 @@ enum SyncStatus { local, synced, pendingUpload, failed }
 
 enum SyncActionType { createOrder, confirmReceive, markPacked, markDispatched }
 
+enum AttendanceStatus { present, absent, halfDay, leave }
+
+extension AttendanceStatusApi on AttendanceStatus {
+  String get apiValue {
+    return switch (this) {
+      AttendanceStatus.present => 'present',
+      AttendanceStatus.absent => 'absent',
+      AttendanceStatus.halfDay => 'half_day',
+      AttendanceStatus.leave => 'leave',
+    };
+  }
+
+  String get label {
+    return switch (this) {
+      AttendanceStatus.present => 'Present',
+      AttendanceStatus.absent => 'Absent',
+      AttendanceStatus.halfDay => 'Half Day',
+      AttendanceStatus.leave => 'Leave',
+    };
+  }
+
+  static AttendanceStatus fromApi(String value) {
+    return switch (value) {
+      'present' => AttendanceStatus.present,
+      'absent' => AttendanceStatus.absent,
+      'half_day' => AttendanceStatus.halfDay,
+      'leave' => AttendanceStatus.leave,
+      _ => AttendanceStatus.present,
+    };
+  }
+}
+
 class UserSession {
   const UserSession({
     required this.id,
@@ -185,15 +217,12 @@ class Product {
   final String model;
   final String color;
   final String status; // present | inactive | discontinued
-  final String customStyle; // default | premium | featured | sale | catalogue_ready
+  final String
+  customStyle; // default | premium | featured | sale | catalogue_ready
   final String? imageUrl;
   final String? localImagePath;
 
-  Product copyWith({
-    String? imageUrl,
-    String? localImagePath,
-    String? status,
-  }) {
+  Product copyWith({String? imageUrl, String? localImagePath, String? status}) {
     return Product(
       id: id,
       title: title,
@@ -235,7 +264,8 @@ class Product {
     model: (json['model'] ?? '') as String,
     color: (json['color'] ?? '') as String,
     status: (json['status'] ?? 'present') as String,
-    customStyle: (json['customStyle'] ?? json['custom_style'] ?? 'default') as String,
+    customStyle:
+        (json['customStyle'] ?? json['custom_style'] ?? 'default') as String,
     imageUrl: json['imageUrl'] as String?,
     localImagePath: json['localImagePath'] as String?,
   );
@@ -276,10 +306,7 @@ class InventoryItem {
 
   bool get isLowStock => availableStock <= 3;
 
-  InventoryItem copyWith({
-    String? imageUrl,
-    String? localImagePath,
-  }) {
+  InventoryItem copyWith({String? imageUrl, String? localImagePath}) {
     return InventoryItem(
       productId: productId,
       sku: sku,
@@ -461,7 +488,154 @@ class EmployeeUser {
     status: (json['status'] ?? 'active') as String,
     locationId: json['location_id'] as String?,
     locationName: json['location_name'] as String?,
-    createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ??
+    createdAt:
+        DateTime.tryParse((json['created_at'] ?? '') as String) ??
         DateTime.now(),
   );
+}
+
+class AttendanceRecord {
+  const AttendanceRecord({
+    required this.id,
+    required this.userId,
+    required this.userName,
+    required this.attendanceDate,
+    required this.status,
+    required this.markedAt,
+    this.locationName,
+  });
+
+  final String id;
+  final String userId;
+  final String userName;
+  final DateTime attendanceDate;
+  final AttendanceStatus status;
+  final DateTime markedAt;
+  final String? locationName;
+
+  factory AttendanceRecord.fromJson(Map<dynamic, dynamic> json) =>
+      AttendanceRecord(
+        id: json['id'] as String,
+        userId: json['user_id'] as String,
+        userName: (json['user_name'] ?? '') as String,
+        attendanceDate: DateTime.parse(json['attendance_date'] as String),
+        status: AttendanceStatusApi.fromApi(
+          (json['status'] ?? 'present') as String,
+        ),
+        markedAt:
+            DateTime.tryParse((json['marked_at'] ?? '') as String) ??
+            DateTime.now(),
+        locationName: json['location_name'] as String?,
+      );
+}
+
+class SalaryPayoutRecord {
+  const SalaryPayoutRecord({
+    required this.id,
+    required this.userId,
+    required this.userName,
+    required this.monthKey,
+    required this.grossAmount,
+    required this.deductions,
+    required this.netAmount,
+    required this.payoutDate,
+    this.notes,
+  });
+
+  final String id;
+  final String userId;
+  final String userName;
+  final String monthKey;
+  final double grossAmount;
+  final double deductions;
+  final double netAmount;
+  final DateTime payoutDate;
+  final String? notes;
+
+  factory SalaryPayoutRecord.fromJson(Map<dynamic, dynamic> json) =>
+      SalaryPayoutRecord(
+        id: json['id'] as String,
+        userId: json['user_id'] as String,
+        userName: (json['user_name'] ?? '') as String,
+        monthKey: (json['month_key'] ?? '') as String,
+        grossAmount: (json['gross_amount'] as num).toDouble(),
+        deductions: (json['deductions'] as num).toDouble(),
+        netAmount: (json['net_amount'] as num).toDouble(),
+        payoutDate: DateTime.parse(json['payout_date'] as String),
+        notes: json['notes'] as String?,
+      );
+}
+
+class LeaveRecord {
+  const LeaveRecord({
+    required this.id,
+    required this.userId,
+    required this.userName,
+    required this.leaveType,
+    required this.startDate,
+    required this.endDate,
+    required this.daysCount,
+    required this.status,
+    this.reason,
+  });
+
+  final String id;
+  final String userId;
+  final String userName;
+  final String leaveType;
+  final DateTime startDate;
+  final DateTime endDate;
+  final int daysCount;
+  final String status;
+  final String? reason;
+
+  factory LeaveRecord.fromJson(Map<dynamic, dynamic> json) => LeaveRecord(
+    id: json['id'] as String,
+    userId: json['user_id'] as String,
+    userName: (json['user_name'] ?? '') as String,
+    leaveType: (json['leave_type'] ?? 'leave') as String,
+    startDate: DateTime.parse(json['start_date'] as String),
+    endDate: DateTime.parse(json['end_date'] as String),
+    daysCount: (json['days_count'] as num).toInt(),
+    status: (json['status'] ?? 'pending') as String,
+    reason: json['reason'] as String?,
+  );
+}
+
+class StaffRecordsBundle {
+  const StaffRecordsBundle({
+    required this.attendance,
+    required this.salaryPayouts,
+    required this.leaveRecords,
+  });
+
+  final List<AttendanceRecord> attendance;
+  final List<SalaryPayoutRecord> salaryPayouts;
+  final List<LeaveRecord> leaveRecords;
+
+  factory StaffRecordsBundle.fromJson(Map<String, dynamic> json) {
+    return StaffRecordsBundle(
+      attendance: (json['attendance'] as List<dynamic>? ?? const <dynamic>[])
+          .map(
+            (e) =>
+                AttendanceRecord.fromJson(Map<String, dynamic>.from(e as Map)),
+          )
+          .toList(),
+      salaryPayouts:
+          (json['salary_payouts'] as List<dynamic>? ?? const <dynamic>[])
+              .map(
+                (e) => SalaryPayoutRecord.fromJson(
+                  Map<String, dynamic>.from(e as Map),
+                ),
+              )
+              .toList(),
+      leaveRecords:
+          (json['leave_records'] as List<dynamic>? ?? const <dynamic>[])
+              .map(
+                (e) =>
+                    LeaveRecord.fromJson(Map<String, dynamic>.from(e as Map)),
+              )
+              .toList(),
+    );
+  }
 }

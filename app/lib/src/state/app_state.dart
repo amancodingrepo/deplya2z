@@ -12,6 +12,10 @@ class AppState {
     required this.employees,
     required this.locations,
     required this.syncQueue,
+    required this.attendanceRecords,
+    required this.salaryPayouts,
+    required this.leaveRecords,
+    required this.adminInventory,
     required this.message,
   });
 
@@ -25,6 +29,10 @@ class AppState {
   final List<EmployeeUser> employees;
   final List<AppLocation> locations;
   final List<SyncAction> syncQueue;
+  final List<AttendanceRecord> attendanceRecords;
+  final List<SalaryPayoutRecord> salaryPayouts;
+  final List<LeaveRecord> leaveRecords;
+  final List<InventoryItem> adminInventory;
   final String? message;
 
   bool get isLoggedIn => session != null;
@@ -41,6 +49,10 @@ class AppState {
     List<EmployeeUser>? employees,
     List<AppLocation>? locations,
     List<SyncAction>? syncQueue,
+    List<AttendanceRecord>? attendanceRecords,
+    List<SalaryPayoutRecord>? salaryPayouts,
+    List<LeaveRecord>? leaveRecords,
+    List<InventoryItem>? adminInventory,
     String? message,
     bool clearMessage = false,
   }) {
@@ -55,6 +67,10 @@ class AppState {
       employees: employees ?? this.employees,
       locations: locations ?? this.locations,
       syncQueue: syncQueue ?? this.syncQueue,
+      attendanceRecords: attendanceRecords ?? this.attendanceRecords,
+      salaryPayouts: salaryPayouts ?? this.salaryPayouts,
+      leaveRecords: leaveRecords ?? this.leaveRecords,
+      adminInventory: adminInventory ?? this.adminInventory,
       message: clearMessage ? null : (message ?? this.message),
     );
   }
@@ -70,6 +86,10 @@ class AppState {
     employees: <EmployeeUser>[],
     locations: <AppLocation>[],
     syncQueue: <SyncAction>[],
+    attendanceRecords: <AttendanceRecord>[],
+    salaryPayouts: <SalaryPayoutRecord>[],
+    leaveRecords: <LeaveRecord>[],
+    adminInventory: <InventoryItem>[],
     message: null,
   );
 }
