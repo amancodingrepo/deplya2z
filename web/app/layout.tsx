@@ -1,10 +1,16 @@
 import type { ReactNode } from 'react';
+import './globals.css';
+
+export const metadata = {
+  title: 'A2Z Supply Management',
+  description: 'Store & Warehouse Supply Management System',
+};
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body style={{ margin: 0, fontFamily: 'Segoe UI, sans-serif', background: '#f7f7f8' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: 20 }}>{children}</div>
+    <html lang="en" suppressHydrationWarning>
+      <body className="min-h-dvh bg-background text-foreground antialiased">
+        {children}
       </body>
     </html>
   );
