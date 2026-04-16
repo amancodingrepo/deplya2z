@@ -1,10 +1,27 @@
 import type { ReactNode } from 'react';
+import { Inter } from 'next/font/google';
+import './globals.css';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+export const metadata = {
+  title: 'A2Z Supply Management',
+  description: 'Store & Warehouse Supply Management System',
+};
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body style={{ margin: 0, fontFamily: 'Segoe UI, sans-serif', background: '#f7f7f8' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: 20 }}>{children}</div>
+    <html lang="en" suppressHydrationWarning className={inter.variable}>
+      <head>
+        {/* Prevent FOUC: apply theme class synchronously before first paint */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme');var dark=t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme:dark)').matches);if(dark)document.documentElement.classList.add('dark');}catch(e){}})();` }} />
+      </head>
+      <body className="min-h-dvh bg-background text-foreground antialiased">
+        {children}
       </body>
     </html>
   );
