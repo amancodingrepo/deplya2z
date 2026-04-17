@@ -13,6 +13,8 @@ const MIGRATION_FILES = [
   '002_indexes.sql',
   '003_triggers.sql',
   '004_rls_policies.sql',
+  '005_schema_alignment.sql',
+  '006_seed_data.sql',
 ];
 
 async function runMigrations() {
