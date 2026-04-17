@@ -1,0 +1,7 @@
+-- ============================================================
+-- 004_rls_policies.sql
+-- RLS policies - configure per your Neon setup
+-- ============================================================
+-- Row Level Security policies are intentionally left unconfigured here.
+-- Access control is enforced at the application layer (middleware/auth.ts).
+-- Configure RLS per your Neon project's security requirements if needed.

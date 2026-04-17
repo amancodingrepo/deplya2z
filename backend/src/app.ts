@@ -1,3 +1,4 @@
+import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
@@ -12,8 +13,12 @@ import { bulkOrdersRouter } from './routes/bulkOrders.js';
 import { clientsRouter } from './routes/clients.js';
 import { inventoryRouter } from './routes/inventory.js';
 import { locationsRouter } from './routes/locations.js';
+import { notificationsRouter } from './routes/notifications.js';
 import { ordersRouter } from './routes/orders.js';
 import { productsRouter } from './routes/products.js';
+import { reportsRouter } from './routes/reports.js';
+import { transfersRouter } from './routes/transfers.js';
+import { uploadRouter } from './routes/upload.js';
 import { usersRouter } from './routes/users.js';
 
 const logger = pino({ level: env.logLevel });
@@ -53,6 +58,7 @@ function buildCorsOriginChecker() {
 
 export function createApp() {
   const app = express();
+  app.use(compression());
   app.use(helmet());
   app.use(cors({ origin: buildCorsOriginChecker() }));
   app.use(rateLimit({ windowMs: 60_000, limit: 120 }));
@@ -60,7 +66,7 @@ export function createApp() {
     logger.info({ method: req.method, url: req.url }, 'request');
     next();
   });
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '10mb' }));
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true, service: 'store-warehouse-backend' });
@@ -84,8 +90,36 @@ export function createApp() {
     app.use(`${prefix}/orders`, ordersRouter);
     app.use(`${prefix}/bulk-orders`, bulkOrdersRouter);
     app.use(`${prefix}/clients`, clientsRouter);
+    app.use(`${prefix}/upload`, uploadRouter);
+    app.use(`${prefix}/reports`, reportsRouter);
+    app.use(`${prefix}/notifications`, notificationsRouter);
+    app.use(`${prefix}/transfers`, transfersRouter);
+
+    // Versioned health endpoint
+    app.get(`${prefix}/health`, async (_req, res) => {
+      try {
+        const dbOk = await healthCheckDatabase();
+        const memUsage = process.memoryUsage();
+        return res.status(dbOk ? 200 : 503).json({
+          status: dbOk ? 'ok' : 'degraded',
+          database: dbOk ? 'up' : 'down',
+          uptime_seconds: Math.floor(process.uptime()),
+          memory_mb: Math.round(memUsage.rss / 1024 / 1024),
+          timestamp: new Date().toISOString(),
+        });
+      } catch {
+        return res.status(503).json({
+          status: 'degraded',
+          database: 'down',
+          uptime_seconds: Math.floor(process.uptime()),
+          memory_mb: 0,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
   };
 
+  mountApiRoutes('/api/v1');
   mountApiRoutes('/v1');
   mountApiRoutes('');
 
