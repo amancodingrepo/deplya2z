@@ -1,3 +1,5 @@
+'use client';
+
 import type { ReactNode } from 'react';
 import { Sidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
@@ -5,6 +7,7 @@ import {
   HomeIcon, BoxIcon, ClipboardIcon, ShoppingCartIcon, LayersIcon,
   UsersIcon, MapPinIcon, BuildingIcon, ChartBarIcon, CogIcon,
 } from '../../components/layout/icons';
+import { getAuth, clearAuth, getUserInitials } from '../../lib/auth';
 
 const navGroups = [
   {
@@ -49,16 +52,21 @@ const navGroups = [
 ];
 
 export default function SuperadminLayout({ children }: { children: ReactNode }) {
+  const auth = getAuth();
+  const userName = auth?.user.name ?? 'Admin';
+  const userInitials = getUserInitials(userName);
+
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar
         groups={navGroups}
         roleName="Super Admin"
-        userName="Alex Johnson"
-        userInitials="AJ"
+        userName={userName}
+        userInitials={userInitials}
+        onLogout={() => { clearAuth(); window.location.href = '/login'; }}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header userName="Alex Johnson" userRole="superadmin" />
+        <Header userName={userName} userRole="superadmin" />
         <main className="flex-1 overflow-y-auto p-6 scrollbar-thin">
           <div className="mx-auto max-w-7xl">
             {children}

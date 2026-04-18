@@ -1,12 +1,19 @@
+export const dynamic = 'force-dynamic';
+
 import { AppHeader } from '../../components/AppHeader';
 import { InventoryList } from '../../components/InventoryList';
 import { StoreRequestForm } from '../../components/StoreRequestForm';
 import { getInventory, getProducts, loginForRole } from '../../lib/api';
 
 export default async function StorePage() {
-  const storeToken = await loginForRole('store@company.com', '1234');
-  const storeInventory = await getInventory(storeToken, 'ST01').catch(() => []);
-  const products = await getProducts(storeToken).catch(() => []);
+  let storeToken = '';
+  let storeInventory: Awaited<ReturnType<typeof getInventory>> = [];
+  let products: Awaited<ReturnType<typeof getProducts>> = [];
+  try {
+    storeToken = await loginForRole('store@company.com', '1234');
+    storeInventory = await getInventory(storeToken, 'ST01').catch(() => []);
+    products = await getProducts(storeToken).catch(() => []);
+  } catch { /* backend not available */ }
 
   return (
     <main style={{ display: 'grid', gap: 16 }}>

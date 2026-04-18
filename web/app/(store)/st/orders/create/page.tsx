@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../../../components/ui/card';
@@ -8,36 +9,127 @@ import { Button } from '../../../../../components/ui/button';
 import { Badge } from '../../../../../components/ui/badge';
 import { Dialog } from '../../../../../components/ui/dialog';
 import { ChipFilter } from '../../../../../components/ui/chip-filter';
+import { getToken, getUser } from '../../../../../lib/auth';
+import { apiInventory, apiLocations, apiCreateOrder, ApiError } from '../../../../../lib/api';
+import type { InventoryRow, Location } from '../../../../../lib/api';
 
-const products = [
-  { id: 'p1', sku: 'SKU-TV-001', name: 'Samsung 55" TV', brand: 'Samsung', category: 'Electronics', stock: 2, lowStock: true, image: 'https://placehold.co/80x80/1a1a2e/4f8ef7?text=TV' },
-  { id: 'p2', sku: 'SKU-MON-001', name: 'LG Monitor 23"', brand: 'LG', category: 'Electronics', stock: 15, lowStock: false, image: 'https://placehold.co/80x80/0f2027/4f8ef7?text=MON' },
-  { id: 'p3', sku: 'SKU-FRG-003', name: 'LG Fridge 23cu', brand: 'LG', category: 'Appliances', stock: 1, lowStock: true, image: 'https://placehold.co/80x80/0d1b2a/4f8ef7?text=FRG' },
-  { id: 'p4', sku: 'SKU-LAP-007', name: 'Dell XPS 15', brand: 'Dell', category: 'Computers', stock: 3, lowStock: false, image: 'https://placehold.co/80x80/1a1a2e/e2e8f0?text=LAP' },
-  { id: 'p5', sku: 'SKU-PHN-012', name: 'iPhone 15 Pro', brand: 'Apple', category: 'Phones', stock: 22, lowStock: false, image: 'https://placehold.co/80x80/1c1c1e/e2e8f0?text=PHN' },
-  { id: 'p6', sku: 'SKU-HDP-002', name: 'Sony WH-1000XM5', brand: 'Sony', category: 'Electronics', stock: 8, lowStock: false, image: 'https://placehold.co/80x80/111827/4f8ef7?text=AUD' },
-  { id: 'p7', sku: 'SKU-TAB-005', name: 'iPad Pro 12.9"', brand: 'Apple', category: 'Tablets', stock: 5, lowStock: false, image: 'https://placehold.co/80x80/1c1c1e/94a3b8?text=TAB' },
+/* ─── Fallback products (shown until API loads) ───── */
+const MOCK_PRODUCTS = [
+  { id: 'p1', product_id: 'p1', sku: 'SKU-TV-001', name: 'Samsung 55" TV', brand: 'Samsung', category: 'Electronics', available: 2, threshold: 5, image: 'https://placehold.co/80x80/1a1a2e/4f8ef7?text=TV' },
+  { id: 'p2', product_id: 'p2', sku: 'SKU-MON-001', name: 'LG Monitor 23"', brand: 'LG', category: 'Electronics', available: 15, threshold: 5, image: 'https://placehold.co/80x80/0f2027/4f8ef7?text=MON' },
+  { id: 'p3', product_id: 'p3', sku: 'SKU-FRG-003', name: 'LG Fridge 23cu', brand: 'LG', category: 'Appliances', available: 1, threshold: 5, image: 'https://placehold.co/80x80/0d1b2a/4f8ef7?text=FRG' },
+  { id: 'p4', product_id: 'p4', sku: 'SKU-LAP-007', name: 'Dell XPS 15', brand: 'Dell', category: 'Computers', available: 3, threshold: 5, image: 'https://placehold.co/80x80/1a1a2e/e2e8f0?text=LAP' },
+  { id: 'p5', product_id: 'p5', sku: 'SKU-PHN-012', name: 'iPhone 15 Pro', brand: 'Apple', category: 'Phones', available: 22, threshold: 10, image: 'https://placehold.co/80x80/1c1c1e/e2e8f0?text=PHN' },
+  { id: 'p6', product_id: 'p6', sku: 'SKU-HDP-002', name: 'Sony WH-1000XM5', brand: 'Sony', category: 'Electronics', available: 8, threshold: 4, image: 'https://placehold.co/80x80/111827/4f8ef7?text=AUD' },
 ];
 
-const categories = ['All', 'Electronics', 'Appliances', 'Computers', 'Phones', 'Tablets'];
+interface ProductRow {
+  id: string;
+  product_id: string;
+  sku: string;
+  name: string;
+  brand: string;
+  category: string;
+  available: number;
+  threshold: number;
+  image: string;
+}
 
-type ModalState = 'confirm' | null;
+function toProductRow(inv: InventoryRow): ProductRow {
+  return {
+    id: inv.id,
+    product_id: inv.product_id,
+    sku: inv.sku,
+    name: inv.product_title,
+    brand: '',
+    category: '',
+    available: inv.available,
+    threshold: inv.threshold,
+    image: `https://placehold.co/80x80/1a1a2e/4f8ef7?text=${encodeURIComponent(inv.sku)}`,
+  };
+}
 
 export default function CreateOrderPage() {
+  const router = useRouter();
+  const user = getUser();
+
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [category, setCategory] = useState('All');
-  const [confirmModal, setConfirmModal] = useState<ModalState>(null);
+  const [confirmModal, setConfirmModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
+  const [products, setProducts] = useState<ProductRow[]>(MOCK_PRODUCTS);
+  const [warehouses, setWarehouses] = useState<Location[]>([]);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { setLoading(false); return; }
+    let cancelled = false;
+    Promise.allSettled([
+      apiInventory(token, { limit: 200 }),
+      apiLocations(token, { type: 'warehouse' }),
+    ]).then(([inv, locs]) => {
+      if (cancelled) return;
+      if (inv.status === 'fulfilled' && inv.value.data.length > 0) {
+        setProducts(inv.value.data.map(toProductRow));
+      }
+      if (locs.status === 'fulfilled' && locs.value.data.length > 0) {
+        setWarehouses(locs.value.data);
+        setSelectedWarehouseId(locs.value.data[0]?.id ?? '');
+      }
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const categories = ['All', ...Array.from(new Set(products.map(p => p.category).filter(Boolean)))];
   const filteredProducts = category === 'All' ? products : products.filter(p => p.category === category);
-  const selectedItems = products.filter(p => (quantities[p.id] ?? 0) > 0);
-  const totalItems = selectedItems.reduce((sum, p) => sum + (quantities[p.id] ?? 0), 0);
+  const selectedItems = products.filter(p => (quantities[p.product_id] ?? 0) > 0);
+  const totalItems = selectedItems.reduce((sum, p) => sum + (quantities[p.product_id] ?? 0), 0);
 
-  function setQty(id: string, delta: number, max: number) {
+  function setQty(productId: string, delta: number, max: number) {
     setQuantities(prev => {
-      const next = Math.max(0, Math.min(max, (prev[id] ?? 0) + delta));
-      return { ...prev, [id]: next };
+      const next = Math.max(0, Math.min(max, (prev[productId] ?? 0) + delta));
+      return { ...prev, [productId]: next };
     });
   }
+
+  async function submitOrder() {
+    const token = getToken();
+    if (!token || !user?.location_id || !selectedWarehouseId) {
+      setSubmitError('Missing location data. Please log out and back in.');
+      return;
+    }
+    if (selectedItems.length === 0) return;
+
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      await apiCreateOrder(token, {
+        store_id: user.location_id,
+        warehouse_id: selectedWarehouseId,
+        items: selectedItems.map(p => ({
+          product_id: p.product_id,
+          qty: quantities[p.product_id] ?? 0,
+        })),
+      });
+      router.push('/st/orders');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setSubmitError(err.message ?? 'Failed to submit order. Please try again.');
+      } else {
+        setSubmitError('Failed to submit order. Check your connection.');
+      }
+    } finally {
+      setSubmitting(false);
+      setConfirmModal(false);
+    }
+  }
+
+  const selectedWarehouse = warehouses.find(w => w.id === selectedWarehouseId);
 
   return (
     <div className="flex flex-col gap-5">
@@ -51,8 +143,33 @@ export default function CreateOrderPage() {
           <span className="text-foreground">New Request</span>
         </p>
         <h1 className="text-[20px] font-semibold text-foreground">New Order Request</h1>
-        <p className="text-[13px] text-muted-foreground mt-0.5">Select items to request from warehouse WH01</p>
+        <p className="text-[13px] text-muted-foreground mt-0.5">
+          Select items to request from warehouse
+          {loading && <span className="ml-1 text-[11px] animate-pulse">· Loading products…</span>}
+        </p>
       </div>
+
+      {/* Warehouse selector (if multiple) */}
+      {warehouses.length > 1 && (
+        <div className="flex items-center gap-3">
+          <label className="text-[12px] font-semibold text-foreground">Request from:</label>
+          <select
+            value={selectedWarehouseId}
+            onChange={e => setSelectedWarehouseId(e.target.value)}
+            className="h-8 rounded-md border border-border bg-surface px-2.5 text-[12px] text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+          >
+            {warehouses.map(w => (
+              <option key={w.id} value={w.id}>{w.code} · {w.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {submitError && (
+        <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-[13px] text-destructive">
+          {submitError}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Product Picker */}
@@ -67,8 +184,12 @@ export default function CreateOrderPage() {
           <Card>
             <CardContent className="px-0 py-0">
               <ul className="divide-y divide-border">
+                {filteredProducts.length === 0 && (
+                  <li className="px-5 py-10 text-center text-[13px] text-muted-foreground">No products available</li>
+                )}
                 {filteredProducts.map((p) => {
-                  const qty = quantities[p.id] ?? 0;
+                  const qty = quantities[p.product_id] ?? 0;
+                  const isLow = p.available > 0 && p.available <= p.threshold;
                   return (
                     <li key={p.id} className="flex items-center gap-4 px-5 py-4 hover:bg-muted/30 transition-colors">
                       {/* Product image */}
@@ -79,16 +200,17 @@ export default function CreateOrderPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-[13px] font-medium text-foreground truncate">{p.name}</p>
-                          {p.lowStock && <Badge variant="warning">Low Stock</Badge>}
+                          {p.available === 0 && <Badge variant="destructive">Out of Stock</Badge>}
+                          {isLow && <Badge variant="warning">Low Stock</Badge>}
                         </div>
-                        <p className="text-[12px] text-muted-foreground mt-0.5">{p.brand} · {p.sku}</p>
-                        <p className="text-[11px] text-muted-foreground">{p.stock} available in warehouse</p>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">{p.sku}{p.brand ? ` · ${p.brand}` : ''}</p>
+                        <p className="text-[11px] text-muted-foreground">{p.available} available in warehouse</p>
                       </div>
 
                       {/* Qty stepper */}
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
-                          onClick={() => setQty(p.id, -1, p.stock)}
+                          onClick={() => setQty(p.product_id, -1, p.available)}
                           disabled={qty === 0}
                           className="flex size-7 items-center justify-center rounded-md border border-border bg-surface text-foreground hover:bg-surface-raised disabled:opacity-30 transition-colors text-[15px] font-medium"
                           aria-label="Decrease"
@@ -99,8 +221,8 @@ export default function CreateOrderPage() {
                           {qty}
                         </span>
                         <button
-                          onClick={() => setQty(p.id, 1, p.stock)}
-                          disabled={qty >= p.stock}
+                          onClick={() => setQty(p.product_id, 1, p.available)}
+                          disabled={qty >= p.available || p.available === 0}
                           className="flex size-7 items-center justify-center rounded-md border border-border bg-surface text-foreground hover:bg-surface-raised disabled:opacity-30 transition-colors text-[15px] font-medium"
                           aria-label="Increase"
                         >
@@ -123,11 +245,15 @@ export default function CreateOrderPage() {
               <div className="flex flex-col gap-1.5 text-[13px]">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">From</span>
-                  <span className="font-medium">WH01 · Main Warehouse</span>
+                  <span className="font-medium">
+                    {selectedWarehouse ? `${selectedWarehouse.code} · ${selectedWarehouse.name}` : 'Warehouse'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">To</span>
-                  <span className="font-medium">ST01 · Store 01</span>
+                  <span className="font-medium">
+                    {user?.location_code ? `${user.location_code} · ${user.location_name ?? 'Store'}` : 'Your Store'}
+                  </span>
                 </div>
               </div>
 
@@ -141,7 +267,7 @@ export default function CreateOrderPage() {
                     {selectedItems.map(p => (
                       <li key={p.id} className="flex items-center justify-between text-[13px]">
                         <span className="text-foreground truncate flex-1 mr-2">{p.name}</span>
-                        <span className="text-primary font-semibold tabular-nums flex-shrink-0">×{quantities[p.id]}</span>
+                        <span className="text-primary font-semibold tabular-nums flex-shrink-0">×{quantities[p.product_id]}</span>
                       </li>
                     ))}
                     <li className="flex items-center justify-between text-[12px] border-t border-border pt-2 mt-1">
@@ -155,10 +281,10 @@ export default function CreateOrderPage() {
               <div className="flex flex-col gap-2 border-t border-border pt-3">
                 <Button
                   className="w-full"
-                  disabled={selectedItems.length === 0}
-                  onClick={() => setConfirmModal('confirm')}
+                  disabled={selectedItems.length === 0 || submitting}
+                  onClick={() => setConfirmModal(true)}
                 >
-                  Submit Request
+                  {submitting ? 'Submitting…' : 'Submit Request'}
                 </Button>
                 <Link href="/st/orders">
                   <Button variant="outline" className="w-full">Cancel</Button>
@@ -175,12 +301,13 @@ export default function CreateOrderPage() {
 
       {/* Confirm Modal */}
       <Dialog
-        open={confirmModal === 'confirm'}
-        onClose={() => setConfirmModal(null)}
+        open={confirmModal}
+        onClose={() => setConfirmModal(false)}
         title="Submit Order Request"
-        description={`Submit request for ${totalItems} item${totalItems !== 1 ? 's' : ''} from WH01? A superadmin will review and approve.`}
-        confirmLabel="Submit Request"
-        onConfirm={() => console.log('Order submitted', quantities)}
+        description={`Submit request for ${totalItems} item${totalItems !== 1 ? 's' : ''} from ${selectedWarehouse?.code ?? 'warehouse'}? A superadmin will review and approve.`}
+        confirmLabel={submitting ? 'Submitting…' : 'Submit Request'}
+        confirmVariant="primary"
+        onConfirm={submitOrder}
       />
     </div>
   );

@@ -2,11 +2,19 @@ import { AppHeader } from '../../components/AppHeader';
 import { BulkOrderConsole } from '../../components/BulkOrderConsole';
 import { getBulkOrders, getClients, getProducts, loginForRole } from '../../lib/api';
 
+export const dynamic = 'force-dynamic';
+
 export default async function BulkOrdersPage() {
-  const adminToken = await loginForRole('admin@company.com', '1234');
-  const clients = await getClients(adminToken).catch(() => []);
-  const products = await getProducts(adminToken).catch(() => []);
-  const orders = await getBulkOrders(adminToken).catch(() => []);
+  let adminToken = '';
+  let clients: Awaited<ReturnType<typeof getClients>> = [];
+  let products: Awaited<ReturnType<typeof getProducts>> = [];
+  let orders: Awaited<ReturnType<typeof getBulkOrders>> = [];
+  try {
+    adminToken = await loginForRole('admin@company.com', '1234');
+    clients = await getClients(adminToken).catch(() => []);
+    products = await getProducts(adminToken).catch(() => []);
+    orders = await getBulkOrders(adminToken).catch(() => []);
+  } catch { /* backend not available */ }
 
   return (
     <main style={{ display: 'grid', gap: 16 }}>

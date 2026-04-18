@@ -1,14 +1,22 @@
+export const dynamic = 'force-dynamic';
+
 import { AppHeader } from '../../components/AppHeader';
 import { InventoryList } from '../../components/InventoryList';
 import { StoreRequestForm } from '../../components/StoreRequestForm';
 import { getInventory, getProducts, loginForRole } from '../../lib/api';
 
 export default async function StoreRequestPage() {
-  const warehouseToken = await loginForRole('warehouse@company.com', '1234');
-  const storeToken = await loginForRole('store@company.com', '1234');
-  const warehouseInventory = await getInventory(warehouseToken, 'WH01').catch(() => []);
-  const storeInventory = await getInventory(storeToken, 'ST01').catch(() => []);
-  const products = await getProducts(storeToken).catch(() => []);
+  let warehouseToken = '', storeToken = '';
+  let warehouseInventory: Awaited<ReturnType<typeof getInventory>> = [];
+  let storeInventory: Awaited<ReturnType<typeof getInventory>> = [];
+  let products: Awaited<ReturnType<typeof getProducts>> = [];
+  try {
+    warehouseToken = await loginForRole('warehouse@company.com', '1234');
+    storeToken = await loginForRole('store@company.com', '1234');
+    warehouseInventory = await getInventory(warehouseToken, 'WH01').catch(() => []);
+    storeInventory = await getInventory(storeToken, 'ST01').catch(() => []);
+    products = await getProducts(storeToken).catch(() => []);
+  } catch { /* backend not available */ }
 
   return (
     <main style={{ display: 'grid', gap: 16 }}>

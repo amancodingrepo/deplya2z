@@ -84,6 +84,46 @@ usersRouter.post('/', rolesAllowed(['superadmin']), async (req, res, next) => {
   }
 });
 
+usersRouter.put('/:id', rolesAllowed(['superadmin']), async (req, res, next) => {
+  try {
+    const parsed = updateUserSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        code: 'INVALID_PAYLOAD',
+        message: 'Request body validation failed',
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const updated = await updateUser({
+      actorRole: req.user!.role,
+      id: String(req.params.id),
+      name: parsed.data.name,
+      password: parsed.data.password,
+      role: parsed.data.role,
+      locationCode: parsed.data.location_id,
+      status: parsed.data.status,
+    });
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'user_updated',
+      entityType: 'user',
+      entityId: updated.id,
+      afterValue: {
+        role: updated.role,
+        location_id: updated.location_id,
+        status: updated.status,
+      },
+      details: `Updated employee user ${updated.email}`,
+    });
+
+    return res.json({ success: true, data: updated });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 usersRouter.patch('/:id', rolesAllowed(['superadmin']), async (req, res, next) => {
   try {
     const parsed = updateUserSchema.safeParse(req.body);
@@ -118,7 +158,43 @@ usersRouter.patch('/:id', rolesAllowed(['superadmin']), async (req, res, next) =
       details: `Updated employee user ${updated.email}`,
     });
 
-    return res.json(updated);
+    return res.json({ success: true, data: updated });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const statusSchema = z.object({
+  status: z.enum(['active', 'inactive', 'blocked']),
+});
+
+usersRouter.patch('/:id/status', rolesAllowed(['superadmin']), async (req, res, next) => {
+  try {
+    const parsed = statusSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        code: 'INVALID_PAYLOAD',
+        message: 'Request body validation failed',
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const updated = await updateUser({
+      actorRole: req.user!.role,
+      id: String(req.params.id),
+      status: parsed.data.status,
+    });
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'user_status_changed',
+      entityType: 'user',
+      entityId: updated.id,
+      afterValue: { status: parsed.data.status },
+      details: `User status changed to ${parsed.data.status}`,
+    });
+
+    return res.json({ success: true, data: updated });
   } catch (error) {
     return next(error);
   }
