@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../core/app_theme.dart';
@@ -44,6 +45,7 @@ class _WarehouseScreenState extends ConsumerState<WarehouseScreen> {
               _OrdersTab(state: state, controller: controller),
               _InventoryTab(
                 state: state,
+                controller: controller,
                 onViewAll: () => context.go('/inventory'),
               ),
               _SettingsTab(controller: controller, state: state),
@@ -60,9 +62,7 @@ class _WarehouseScreenState extends ConsumerState<WarehouseScreen> {
       decoration: BoxDecoration(
         color: AppTheme.bgCard,
         border: Border(
-          top: BorderSide(
-            color: AppTheme.surfaceLight.withValues(alpha: 0.3),
-          ),
+          top: BorderSide(color: AppTheme.surfaceLight.withValues(alpha: 0.3)),
         ),
       ),
       child: BottomNavigationBar(
@@ -137,6 +137,99 @@ class _DashboardTab extends StatelessWidget {
                           'Warehouse Hub',
                           style: Theme.of(context).textTheme.headlineMedium,
                         ),
+                        if ((state.attendanceRecords as List).isNotEmpty)
+                          GlassCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Attendance',
+                                  style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ...(state.attendanceRecords
+                                        as List<AttendanceRecord>)
+                                    .take(3)
+                                    .map(
+                                      (record) => Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 4,
+                                        ),
+                                        child: Text(
+                                          '${DateFormat('dd MMM').format(record.attendanceDate)} • ${record.status.label}',
+                                          style: const TextStyle(
+                                            color: AppTheme.textMuted,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                              ],
+                            ),
+                          ),
+                        if ((state.salaryPayouts as List).isNotEmpty)
+                          GlassCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Latest Salary',
+                                  style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ...(state.salaryPayouts
+                                        as List<SalaryPayoutRecord>)
+                                    .take(1)
+                                    .map(
+                                      (payout) => Text(
+                                        '${payout.monthKey} • ${payout.netAmount.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          color: AppTheme.textMuted,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                              ],
+                            ),
+                          ),
+                        if ((state.leaveRecords as List).isNotEmpty)
+                          GlassCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Leaves Taken',
+                                  style: TextStyle(
+                                    color: AppTheme.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ...(state.leaveRecords as List<LeaveRecord>)
+                                    .take(3)
+                                    .map(
+                                      (leave) => Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 4,
+                                        ),
+                                        child: Text(
+                                          '${leave.leaveType} • ${leave.daysCount} day(s) • ${leave.status}',
+                                          style: const TextStyle(
+                                            color: AppTheme.textMuted,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -219,31 +312,28 @@ class _DashboardTab extends StatelessWidget {
           if (pending.isNotEmpty) ...[
             _sectionHeader('Pending Orders', Icons.access_time_rounded),
             SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final order = pending[index];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _OrderCard(
-                      order: order,
-                      actionLabel: 'Mark Packed',
-                      actionIcon: Icons.check_circle_outline_rounded,
-                      onAction: () {
-                        _showConfirmDialog(
-                          context,
-                          'Mark as Packed?',
-                          '${order.items.first.title} • Qty ${order.items.first.quantity}',
-                          () => controller.transitionOrder(
-                            order,
-                            OrderStatus.packed,
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                },
-                childCount: pending.length,
-              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final order = pending[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _OrderCard(
+                    order: order,
+                    actionLabel: 'Mark Packed',
+                    actionIcon: Icons.check_circle_outline_rounded,
+                    onAction: () {
+                      _showConfirmDialog(
+                        context,
+                        'Mark as Packed?',
+                        '${order.items.first.title} • Qty ${order.items.first.quantity}',
+                        () => controller.transitionOrder(
+                          order,
+                          OrderStatus.packed,
+                        ),
+                      );
+                    },
+                  ),
+                );
+              }, childCount: pending.length),
             ),
           ],
 
@@ -251,32 +341,29 @@ class _DashboardTab extends StatelessWidget {
           if (packed.isNotEmpty) ...[
             _sectionHeader('Dispatch Queue', Icons.local_shipping_rounded),
             SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final order = packed[index];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: _OrderCard(
-                      order: order,
-                      actionLabel: 'Dispatch',
-                      actionIcon: Icons.send_rounded,
-                      actionGradient: AppTheme.accentGradient,
-                      onAction: () {
-                        _showConfirmDialog(
-                          context,
-                          'Mark as Dispatched?',
-                          'Ship ${order.orderId} to store',
-                          () => controller.transitionOrder(
-                            order,
-                            OrderStatus.dispatched,
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                },
-                childCount: packed.length,
-              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final order = packed[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _OrderCard(
+                    order: order,
+                    actionLabel: 'Dispatch',
+                    actionIcon: Icons.send_rounded,
+                    actionGradient: AppTheme.accentGradient,
+                    onAction: () {
+                      _showConfirmDialog(
+                        context,
+                        'Mark as Dispatched?',
+                        'Ship ${order.orderId} to store',
+                        () => controller.transitionOrder(
+                          order,
+                          OrderStatus.dispatched,
+                        ),
+                      );
+                    },
+                  ),
+                );
+              }, childCount: packed.length),
             ),
           ],
 
@@ -284,68 +371,65 @@ class _DashboardTab extends StatelessWidget {
           if (lowStock.isNotEmpty) ...[
             _sectionHeader('Low Stock Alerts', Icons.warning_rounded),
             SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final item = lowStock[index];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: GlassCard(
-                      child: Row(
-                        children: [
-                          ProductImage(
-                            imageUrl: item.imageUrl,
-                            localPath: item.localImagePath,
-                            size: 48,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  item.title,
-                                  style: const TextStyle(
-                                    color: AppTheme.textPrimary,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                  ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final item = lowStock[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: GlassCard(
+                    child: Row(
+                      children: [
+                        ProductImage(
+                          imageUrl: item.imageUrl,
+                          localPath: item.localImagePath,
+                          size: 48,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.title,
+                                style: const TextStyle(
+                                  color: AppTheme.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  item.sku,
-                                  style: const TextStyle(
-                                    color: AppTheme.textMuted,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppTheme.error.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '${item.availableStock} left',
-                              style: const TextStyle(
-                                color: AppTheme.error,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 12,
                               ),
+                              const SizedBox(height: 2),
+                              Text(
+                                item.sku,
+                                style: const TextStyle(
+                                  color: AppTheme.textMuted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.error.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${item.availableStock} left',
+                            style: const TextStyle(
+                              color: AppTheme.error,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  );
-                },
-                childCount: lowStock.length,
-              ),
+                  ),
+                );
+              }, childCount: lowStock.length),
             ),
           ],
 
@@ -394,8 +478,10 @@ class _DashboardTab extends StatelessWidget {
                     ),
                   );
                 },
-                childCount:
-                    (state.orders as List<StoreOrder>).length.clamp(0, 5),
+                childCount: (state.orders as List<StoreOrder>).length.clamp(
+                  0,
+                  5,
+                ),
               ),
             ),
           ],
@@ -441,10 +527,11 @@ class _DashboardTab extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         ),
-        title: Text(title,
-            style: const TextStyle(color: AppTheme.textPrimary)),
-        content: Text(subtitle,
-            style: const TextStyle(color: AppTheme.textSecondary)),
+        title: Text(title, style: const TextStyle(color: AppTheme.textPrimary)),
+        content: Text(
+          subtitle,
+          style: const TextStyle(color: AppTheme.textSecondary),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -595,8 +682,7 @@ class _OrdersTab extends StatelessWidget {
                                 const SizedBox(height: 4),
                                 Text(
                                   order.items
-                                      .map(
-                                          (i) => '${i.title} x${i.quantity}')
+                                      .map((i) => '${i.title} x${i.quantity}')
                                       .join(', '),
                                   style: const TextStyle(
                                     color: AppTheme.textSecondary,
@@ -607,8 +693,9 @@ class _OrdersTab extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  DateFormat('MMM dd, yyyy • h:mm a')
-                                      .format(order.createdAt),
+                                  DateFormat(
+                                    'MMM dd, yyyy • h:mm a',
+                                  ).format(order.createdAt),
                                   style: const TextStyle(
                                     color: AppTheme.textMuted,
                                     fontSize: 11,
@@ -634,9 +721,14 @@ class _OrdersTab extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════════════════
 
 class _InventoryTab extends StatefulWidget {
-  const _InventoryTab({required this.state, required this.onViewAll});
+  const _InventoryTab({
+    required this.state,
+    required this.onViewAll,
+    required this.controller,
+  });
   final dynamic state;
   final VoidCallback onViewAll;
+  final dynamic controller;
 
   @override
   State<_InventoryTab> createState() => _InventoryTabState();
@@ -644,15 +736,18 @@ class _InventoryTab extends StatefulWidget {
 
 class _InventoryTabState extends State<_InventoryTab> {
   String _search = '';
+  final _picker = ImagePicker();
 
   @override
   Widget build(BuildContext context) {
     final inventory = (widget.state.inventory as List<InventoryItem>)
-        .where((i) =>
-            _search.isEmpty ||
-            i.title.toLowerCase().contains(_search.toLowerCase()) ||
-            i.sku.toLowerCase().contains(_search.toLowerCase()) ||
-            i.brand.toLowerCase().contains(_search.toLowerCase()))
+        .where(
+          (i) =>
+              _search.isEmpty ||
+              i.title.toLowerCase().contains(_search.toLowerCase()) ||
+              i.sku.toLowerCase().contains(_search.toLowerCase()) ||
+              i.brand.toLowerCase().contains(_search.toLowerCase()),
+        )
         .toList();
 
     return Column(
@@ -660,9 +755,20 @@ class _InventoryTabState extends State<_InventoryTab> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-          child: Text(
-            'Inventory',
-            style: Theme.of(context).textTheme.headlineMedium,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Inventory',
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: _showCreateDialog,
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Add Item'),
+              ),
+            ],
           ),
         ),
         Padding(
@@ -672,8 +778,7 @@ class _InventoryTabState extends State<_InventoryTab> {
             style: const TextStyle(color: AppTheme.textPrimary),
             decoration: const InputDecoration(
               hintText: 'Search products...',
-              prefixIcon:
-                  Icon(Icons.search_rounded, color: AppTheme.textMuted),
+              prefixIcon: Icon(Icons.search_rounded, color: AppTheme.textMuted),
             ),
           ),
         ),
@@ -720,6 +825,15 @@ class _InventoryTabState extends State<_InventoryTab> {
                                     fontSize: 12,
                                   ),
                                 ),
+                                if (item.model.isNotEmpty ||
+                                    item.color.isNotEmpty)
+                                  Text(
+                                    '${item.model} ${item.color}'.trim(),
+                                    style: const TextStyle(
+                                      color: AppTheme.textMuted,
+                                      fontSize: 11,
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
@@ -753,6 +867,32 @@ class _InventoryTabState extends State<_InventoryTab> {
                                   color: AppTheme.textMuted,
                                 ),
                               ),
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.edit_rounded,
+                                      size: 18,
+                                      color: AppTheme.info,
+                                    ),
+                                    onPressed: () => _showUpdateDialog(item),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 18,
+                                      color: AppTheme.error,
+                                    ),
+                                    onPressed: () =>
+                                        widget.controller.deleteInventoryItem(
+                                          productRef: item.productId,
+                                          locationId: item.locationId,
+                                        ),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         ],
@@ -762,6 +902,212 @@ class _InventoryTabState extends State<_InventoryTab> {
                 ),
         ),
       ],
+    );
+  }
+
+  Future<void> _showCreateDialog() async {
+    final sku = TextEditingController();
+    final title = TextEditingController();
+    final brand = TextEditingController();
+    final category = TextEditingController();
+    final model = TextEditingController();
+    final color = TextEditingController();
+    final stock = TextEditingController(text: '0');
+    List<int>? imageBytes;
+    String? imageName;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          title: const Text('Create Inventory Item'),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: sku,
+                    decoration: const InputDecoration(labelText: 'SKU'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: title,
+                    decoration: const InputDecoration(labelText: 'Title'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: brand,
+                    decoration: const InputDecoration(labelText: 'Brand'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: category,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: model,
+                    decoration: const InputDecoration(labelText: 'Model'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: color,
+                    decoration: const InputDecoration(labelText: 'Color'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: stock,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Total Stock'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final file = await _picker.pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 80,
+                      );
+                      if (file == null) return;
+                      imageBytes = await file.readAsBytes();
+                      imageName = file.name;
+                      setStateDialog(() {});
+                    },
+                    icon: const Icon(Icons.image_outlined),
+                    label: Text(imageName ?? 'Upload Item Image'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await widget.controller.createInventoryItem(
+                  sku: sku.text.trim(),
+                  title: title.text.trim(),
+                  brand: brand.text.trim(),
+                  category: category.text.trim().isEmpty
+                      ? null
+                      : category.text.trim(),
+                  model: model.text.trim().isEmpty ? null : model.text.trim(),
+                  color: color.text.trim().isEmpty ? null : color.text.trim(),
+                  totalStock: int.tryParse(stock.text.trim()) ?? 0,
+                  imageBytes: imageBytes,
+                  imageFilename: imageName,
+                );
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showUpdateDialog(InventoryItem item) async {
+    final title = TextEditingController(text: item.title);
+    final brand = TextEditingController(text: item.brand);
+    final category = TextEditingController(text: item.category);
+    final model = TextEditingController(text: item.model);
+    final color = TextEditingController(text: item.color);
+    final stock = TextEditingController(text: item.totalStock.toString());
+    List<int>? imageBytes;
+    String? imageName;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          title: const Text('Update Inventory Item'),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: title,
+                    decoration: const InputDecoration(labelText: 'Title'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: brand,
+                    decoration: const InputDecoration(labelText: 'Brand'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: category,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: model,
+                    decoration: const InputDecoration(labelText: 'Model'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: color,
+                    decoration: const InputDecoration(labelText: 'Color'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: stock,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Total Stock'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final file = await _picker.pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 80,
+                      );
+                      if (file == null) return;
+                      imageBytes = await file.readAsBytes();
+                      imageName = file.name;
+                      setStateDialog(() {});
+                    },
+                    icon: const Icon(Icons.image_outlined),
+                    label: Text(imageName ?? 'Replace Item Image'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await widget.controller.updateInventoryItem(
+                  productRef: item.productId,
+                  locationId: item.locationId,
+                  title: title.text.trim(),
+                  brand: brand.text.trim(),
+                  category: category.text.trim(),
+                  model: model.text.trim(),
+                  color: color.text.trim(),
+                  totalStock:
+                      int.tryParse(stock.text.trim()) ?? item.totalStock,
+                  imageBytes: imageBytes,
+                  imageFilename: imageName,
+                );
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -784,10 +1130,7 @@ class _SettingsTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Settings',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
+          Text('Settings', style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 24),
           GlassCard(
             child: Row(
@@ -897,8 +1240,10 @@ class _SettingsTab extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppTheme.radiusLg),
                   ),
-                  title: const Text('Sign Out?',
-                      style: TextStyle(color: AppTheme.textPrimary)),
+                  title: const Text(
+                    'Sign Out?',
+                    style: TextStyle(color: AppTheme.textPrimary),
+                  ),
                   content: const Text(
                     'Unsynced data will be lost.',
                     style: TextStyle(color: AppTheme.textSecondary),

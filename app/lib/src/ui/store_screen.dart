@@ -1,5 +1,3 @@
-
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -59,9 +57,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
       decoration: BoxDecoration(
         color: AppTheme.bgCard,
         border: Border(
-          top: BorderSide(
-            color: AppTheme.surfaceLight.withValues(alpha: 0.3),
-          ),
+          top: BorderSide(color: AppTheme.surfaceLight.withValues(alpha: 0.3)),
         ),
       ),
       child: BottomNavigationBar(
@@ -103,11 +99,13 @@ class _DashboardTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final orders = state.orders as List<StoreOrder>;
     final inventory = state.inventory as List<InventoryItem>;
-    final pending = orders.where((o) =>
-        o.status == OrderStatus.draft || o.status == OrderStatus.confirmed);
+    final pending = orders.where(
+      (o) => o.status == OrderStatus.draft || o.status == OrderStatus.confirmed,
+    );
     final lowStock = inventory.where((i) => i.isLowStock);
-    final dispatched =
-        orders.where((o) => o.status == OrderStatus.dispatched).toList();
+    final dispatched = orders
+        .where((o) => o.status == OrderStatus.dispatched)
+        .toList();
 
     return RefreshIndicator(
       onRefresh: () => controller.refreshData(),
@@ -187,8 +185,11 @@ class _DashboardTab extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
                 child: Row(
                   children: [
-                    const Icon(Icons.local_shipping_rounded,
-                        color: AppTheme.warning, size: 18),
+                    const Icon(
+                      Icons.local_shipping_rounded,
+                      color: AppTheme.warning,
+                      size: 18,
+                    ),
                     const SizedBox(width: 8),
                     const Text(
                       'Awaiting Confirmation',
@@ -201,7 +202,9 @@ class _DashboardTab extends StatelessWidget {
                     const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: AppTheme.warning.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
@@ -220,73 +223,64 @@ class _DashboardTab extends StatelessWidget {
               ),
             ),
             SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final order = dispatched[index];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: GlassCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      order.orderId,
-                                      style: const TextStyle(
-                                        color: AppTheme.textPrimary,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 14,
-                                      ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final order = dispatched[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: GlassCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    order.orderId,
+                                    style: const TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14,
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      order.items
-                                          .map((i) =>
-                                              '${i.title} x${i.quantity}')
-                                          .join(', '),
-                                      style: const TextStyle(
-                                        color: AppTheme.textSecondary,
-                                        fontSize: 12,
-                                      ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    order.items
+                                        .map((i) => '${i.title} x${i.quantity}')
+                                        .join(', '),
+                                    style: const TextStyle(
+                                      color: AppTheme.textSecondary,
+                                      fontSize: 12,
                                     ),
-                                  ],
-                                ),
-                              ),
-                              StatusBadge(
-                                  status: order.status, compact: true),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: GradientButton(
-                              label: 'Confirm Receipt',
-                              icon: Icons.check_circle_outline_rounded,
-                              compact: true,
-                              gradient: const LinearGradient(
-                                colors: [
-                                  Color(0xFF4ADE80),
-                                  Color(0xFF22C55E),
+                                  ),
                                 ],
                               ),
-                              onPressed: () {
-                                _showReceiptDialog(
-                                    context, order, controller);
-                              },
                             ),
+                            StatusBadge(status: order.status, compact: true),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: GradientButton(
+                            label: 'Confirm Receipt',
+                            icon: Icons.check_circle_outline_rounded,
+                            compact: true,
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF4ADE80), Color(0xFF22C55E)],
+                            ),
+                            onPressed: () {
+                              _showReceiptDialog(context, order, controller);
+                            },
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  );
-                },
-                childCount: dispatched.length,
-              ),
+                  ),
+                );
+              }, childCount: dispatched.length),
             ),
           ],
 
@@ -301,12 +295,16 @@ class _DashboardTab extends StatelessWidget {
                     color: AppTheme.info.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                     border: Border.all(
-                        color: AppTheme.info.withValues(alpha: 0.2)),
+                      color: AppTheme.info.withValues(alpha: 0.2),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline_rounded,
-                          color: AppTheme.info, size: 16),
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: AppTheme.info,
+                        size: 16,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -341,8 +339,10 @@ class _DashboardTab extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         ),
-        title: const Text('Confirm Receipt?',
-            style: TextStyle(color: AppTheme.textPrimary)),
+        title: const Text(
+          'Confirm Receipt?',
+          style: TextStyle(color: AppTheme.textPrimary),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -357,8 +357,11 @@ class _DashboardTab extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Row(
                   children: [
-                    const Icon(Icons.check_box_outline_blank_rounded,
-                        size: 16, color: AppTheme.textMuted),
+                    const Icon(
+                      Icons.check_box_outline_blank_rounded,
+                      size: 16,
+                      color: AppTheme.textMuted,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       '${i.title}: qty ${i.quantity}',
@@ -379,9 +382,7 @@ class _DashboardTab extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppTheme.success,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.success),
             onPressed: () {
               Navigator.pop(ctx);
               controller.transitionOrder(order, OrderStatus.storeReceived);
@@ -410,8 +411,6 @@ class _ProductListTab extends ConsumerStatefulWidget {
 class _ProductListTabState extends ConsumerState<_ProductListTab> {
   String _search = '';
   final _picker = ImagePicker();
-
-
 
   Future<void> _pickImage(String productId) async {
     final source = await showModalBottomSheet<ImageSource>(
@@ -511,7 +510,9 @@ class _ProductListTabState extends ConsumerState<_ProductListTab> {
       ),
       builder: (ctx) => Padding(
         padding: EdgeInsets.fromLTRB(
-          24, 24, 24,
+          24,
+          24,
+          24,
           MediaQuery.of(ctx).viewInsets.bottom + 24,
         ),
         child: Column(
@@ -605,7 +606,9 @@ class _ProductListTabState extends ConsumerState<_ProductListTab> {
                   return;
                 }
                 Navigator.pop(ctx);
-                ref.read(appControllerProvider.notifier).createOrderRequest(
+                ref
+                    .read(appControllerProvider.notifier)
+                    .createOrderRequest(
                       productId: item.productId,
                       title: item.title,
                       sku: item.sku,
@@ -656,15 +659,13 @@ class _ProductListTabState extends ConsumerState<_ProductListTab> {
     final appState = ref.watch(appControllerProvider);
     final inventory = _search.isEmpty
         ? appState.inventory
-        : appState.inventory
-            .where((i) {
-              final q = _search.toLowerCase();
-              return i.title.toLowerCase().contains(q) ||
-                  i.sku.toLowerCase().contains(q) ||
-                  i.brand.toLowerCase().contains(q) ||
-                  i.category.toLowerCase().contains(q);
-            })
-            .toList();
+        : appState.inventory.where((i) {
+            final q = _search.toLowerCase();
+            return i.title.toLowerCase().contains(q) ||
+                i.sku.toLowerCase().contains(q) ||
+                i.brand.toLowerCase().contains(q) ||
+                i.category.toLowerCase().contains(q);
+          }).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -680,9 +681,9 @@ class _ProductListTabState extends ConsumerState<_ProductListTab> {
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
           child: Text(
             'Tap image to select/click photo • Tap card to order',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: AppTheme.textMuted,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
           ),
         ),
         Padding(
@@ -692,8 +693,7 @@ class _ProductListTabState extends ConsumerState<_ProductListTab> {
             style: const TextStyle(color: AppTheme.textPrimary),
             decoration: const InputDecoration(
               hintText: 'Search by name, SKU, brand...',
-              prefixIcon:
-                  Icon(Icons.search_rounded, color: AppTheme.textMuted),
+              prefixIcon: Icon(Icons.search_rounded, color: AppTheme.textMuted),
             ),
           ),
         ),
@@ -824,9 +824,10 @@ class _ProductCard extends StatelessWidget {
                 if (item.model.isNotEmpty || item.color.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
-                    [item.model, item.color]
-                        .where((s) => s.isNotEmpty)
-                        .join(' • '),
+                    [
+                      item.model,
+                      item.color,
+                    ].where((s) => s.isNotEmpty).join(' • '),
                     style: const TextStyle(
                       color: AppTheme.textMuted,
                       fontSize: 11,
@@ -934,9 +935,7 @@ class _ImageSourceOption extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppTheme.bgCardLight,
           borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          border: Border.all(
-            color: color.withValues(alpha: 0.2),
-          ),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Row(
           children: [
@@ -1018,18 +1017,24 @@ class _OrdersTabState extends State<_OrdersTab>
   List<StoreOrder> _filterOrders(int tabIndex) {
     final orders = widget.state.orders as List<StoreOrder>;
     return switch (tabIndex) {
-      1 => orders
-          .where((o) =>
-              o.status == OrderStatus.draft ||
-              o.status == OrderStatus.confirmed ||
-              o.status == OrderStatus.packed ||
-              o.status == OrderStatus.dispatched)
-          .toList(),
-      2 => orders
-          .where((o) =>
-              o.status == OrderStatus.storeReceived ||
-              o.status == OrderStatus.completed)
-          .toList(),
+      1 =>
+        orders
+            .where(
+              (o) =>
+                  o.status == OrderStatus.draft ||
+                  o.status == OrderStatus.confirmed ||
+                  o.status == OrderStatus.packed ||
+                  o.status == OrderStatus.dispatched,
+            )
+            .toList(),
+      2 =>
+        orders
+            .where(
+              (o) =>
+                  o.status == OrderStatus.storeReceived ||
+                  o.status == OrderStatus.completed,
+            )
+            .toList(),
       _ => orders,
     };
   }
@@ -1090,8 +1095,7 @@ class _OrdersTabState extends State<_OrdersTab>
                 itemCount: orders.length,
                 itemBuilder: (context, index) {
                   final order = orders[index];
-                  final canConfirm =
-                      order.status == OrderStatus.dispatched;
+                  final canConfirm = order.status == OrderStatus.dispatched;
                   return GlassCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1100,8 +1104,7 @@ class _OrdersTabState extends State<_OrdersTab>
                           children: [
                             Expanded(
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     order.orderId,
@@ -1114,8 +1117,7 @@ class _OrdersTabState extends State<_OrdersTab>
                                   const SizedBox(height: 4),
                                   Text(
                                     order.items
-                                        .map((i) =>
-                                            '${i.title} x${i.quantity}')
+                                        .map((i) => '${i.title} x${i.quantity}')
                                         .join(', '),
                                     style: const TextStyle(
                                       color: AppTheme.textSecondary,
@@ -1126,8 +1128,9 @@ class _OrdersTabState extends State<_OrdersTab>
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    DateFormat('MMM dd, yyyy • h:mm a')
-                                        .format(order.createdAt),
+                                    DateFormat(
+                                      'MMM dd, yyyy • h:mm a',
+                                    ).format(order.createdAt),
                                     style: const TextStyle(
                                       color: AppTheme.textMuted,
                                       fontSize: 11,
@@ -1136,8 +1139,7 @@ class _OrdersTabState extends State<_OrdersTab>
                                 ],
                               ),
                             ),
-                            StatusBadge(
-                                status: order.status, compact: true),
+                            StatusBadge(status: order.status, compact: true),
                           ],
                         ),
                         if (canConfirm) ...[
@@ -1149,10 +1151,7 @@ class _OrdersTabState extends State<_OrdersTab>
                               icon: Icons.check_circle_outline_rounded,
                               compact: true,
                               gradient: const LinearGradient(
-                                colors: [
-                                  Color(0xFF4ADE80),
-                                  Color(0xFF22C55E),
-                                ],
+                                colors: [Color(0xFF4ADE80), Color(0xFF22C55E)],
                               ),
                               onPressed: () {
                                 _DashboardTab._showReceiptDialog(
@@ -1195,10 +1194,7 @@ class _SettingsTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Settings',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
+          Text('Settings', style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 24),
           GlassCard(
             child: Row(
@@ -1295,8 +1291,11 @@ class _SettingsTab extends StatelessWidget {
             GlassCard(
               child: Row(
                 children: [
-                  const Icon(Icons.sync_rounded,
-                      color: AppTheme.warning, size: 20),
+                  const Icon(
+                    Icons.sync_rounded,
+                    color: AppTheme.warning,
+                    size: 20,
+                  ),
                   const SizedBox(width: 12),
                   Text(
                     '${(state.syncQueue as List).length} action(s) queued for sync',
@@ -1305,6 +1304,93 @@ class _SettingsTab extends StatelessWidget {
                       fontSize: 14,
                     ),
                   ),
+                ],
+              ),
+            ),
+          if ((state.attendanceRecords as List).isNotEmpty)
+            GlassCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Attendance',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...(state.attendanceRecords as List<AttendanceRecord>)
+                      .take(3)
+                      .map(
+                        (record) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '${DateFormat('dd MMM').format(record.attendanceDate)} • ${record.status.label}',
+                            style: const TextStyle(
+                              color: AppTheme.textMuted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          if ((state.salaryPayouts as List).isNotEmpty)
+            GlassCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Latest Salary',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...(state.salaryPayouts as List<SalaryPayoutRecord>)
+                      .take(1)
+                      .map(
+                        (payout) => Text(
+                          '${payout.monthKey} • ${payout.netAmount.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: AppTheme.textMuted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          if ((state.leaveRecords as List).isNotEmpty)
+            GlassCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Leaves Taken',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...(state.leaveRecords as List<LeaveRecord>)
+                      .take(3)
+                      .map(
+                        (leave) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '${leave.leaveType} • ${leave.daysCount} day(s) • ${leave.status}',
+                            style: const TextStyle(
+                              color: AppTheme.textMuted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
                 ],
               ),
             ),
@@ -1321,11 +1407,12 @@ class _SettingsTab extends StatelessWidget {
                 builder: (ctx) => AlertDialog(
                   backgroundColor: AppTheme.bgCard,
                   shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppTheme.radiusLg),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusLg),
                   ),
-                  title: const Text('Sign Out?',
-                      style: TextStyle(color: AppTheme.textPrimary)),
+                  title: const Text(
+                    'Sign Out?',
+                    style: TextStyle(color: AppTheme.textPrimary),
+                  ),
                   content: const Text(
                     'Unsynced data will be lost.',
                     style: TextStyle(color: AppTheme.textSecondary),
