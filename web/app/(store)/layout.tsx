@@ -1,9 +1,12 @@
+'use client';
+
 import type { ReactNode } from 'react';
 import { Sidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
 import {
   HomeIcon, PlusIcon, ClipboardIcon, LayersIcon, CogIcon,
 } from '../../components/layout/icons';
+import { getAuth, clearAuth, getUserInitials } from '../../lib/auth';
 
 const navGroups = [
   {
@@ -33,17 +36,23 @@ const navGroups = [
 ];
 
 export default function StoreLayout({ children }: { children: ReactNode }) {
+  const auth = getAuth();
+  const userName = auth?.user.name ?? 'Manager';
+  const userInitials = getUserInitials(userName);
+  const locationName = auth?.user.location_name ?? auth?.user.location_code ?? 'Store';
+
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar
         groups={navGroups}
         roleName="Store Manager"
-        locationName="Store 01 (ST01)"
-        userName="Priya Sharma"
-        userInitials="PS"
+        locationName={locationName}
+        userName={userName}
+        userInitials={userInitials}
+        onLogout={() => { clearAuth(); window.location.href = '/login'; }}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header userName="Priya Sharma" userRole="store_manager" />
+        <Header userName={userName} userRole="store_manager" />
         <main className="flex-1 overflow-y-auto p-6 scrollbar-thin">
           <div className="mx-auto max-w-7xl">
             {children}

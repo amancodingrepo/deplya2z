@@ -1,28 +1,69 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Card } from '../../../../../components/ui/card';
 import { Badge } from '../../../../../components/ui/badge';
 import { Button } from '../../../../../components/ui/button';
 import { Tabs } from '../../../../../components/ui/tabs';
 import { Dialog } from '../../../../../components/ui/dialog';
-import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell, TableEmpty } from '../../../../../components/ui/table';
+import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '../../../../../components/ui/table';
+import { getToken } from '../../../../../lib/auth';
+import { apiOrders, apiBulkOrders, apiPackOrder, apiPackBulkOrder } from '../../../../../lib/api';
+import type { StoreOrder, BulkOrder } from '../../../../../lib/api';
 
-const orders = [
-  { id: 'ORD-ST01-0001', store: 'Store 01', items: '5× Samsung TV, 3× LG Monitor', qty: 8, approved: 'Alex Johnson', created: 'Apr 12, 10:30 AM', priority: 'high' },
-  { id: 'ORD-ST02-0002', store: 'Store 02', items: '2× LG Fridge', qty: 2, approved: 'Alex Johnson', created: 'Apr 12, 9:15 AM', priority: 'normal' },
-  { id: 'ORD-ST03-0006', store: 'Store 03', items: '10× Sony Headphones', qty: 10, approved: 'Alex Johnson', created: 'Apr 11, 11:00 AM', priority: 'normal' },
-  { id: 'ORD-ST01-0007', store: 'Store 01', items: '1× MacBook Pro', qty: 1, approved: 'Alex Johnson', created: 'Apr 11, 10:00 AM', priority: 'normal' },
-  { id: 'ORD-ST02-0004', store: 'Store 02', items: '4× Dell XPS 15', qty: 4, approved: 'Alex Johnson', created: 'Apr 10, 3:00 PM', priority: 'normal' },
+/* ─── Fallback mock data ─────────────────────────── */
+const MOCK_STORE: StoreOrder[] = [
+  { id: 'ORD-ST01-0001', store: 'Store 01', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Alex Johnson', created: 'Apr 12, 10:30 AM', status: 'confirmed', items: [{ id: '1', product_id: '1', sku: 'SKU-TV-001', name: 'Samsung TV', qty: 5 }, { id: '2', product_id: '2', sku: 'SKU-MON-001', name: 'LG Monitor', qty: 3 }] },
+  { id: 'ORD-ST02-0002', store: 'Store 02', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Alex Johnson', created: 'Apr 12, 9:15 AM', status: 'confirmed', items: [{ id: '3', product_id: '3', sku: 'SKU-FRG-003', name: 'LG Fridge', qty: 2 }] },
+  { id: 'ORD-ST03-0006', store: 'Store 03', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Alex Johnson', created: 'Apr 11, 11:00 AM', status: 'confirmed', items: [{ id: '4', product_id: '4', sku: 'SKU-AUD-004', name: 'Sony Headphones', qty: 10 }] },
+];
+const MOCK_BULK: BulkOrder[] = [
+  { id: 'BULK-0001', client_id: '', client_name: 'Metro Retail Chain', warehouse_id: '', warehouse: 'WH01', status: 'confirmed', items: [{ id: 'b1', product_id: '1', sku: 'SKU-TV-001', name: '50× Samsung TV', qty: 50 }], created_at: 'Apr 12, 9:00 AM', updated_at: '' },
+  { id: 'BULK-0002', client_id: '', client_name: 'TechMart India', warehouse_id: '', warehouse: 'WH01', status: 'confirmed', items: [{ id: 'b2', product_id: '5', sku: 'SKU-PHN-012', name: '200× iPhone 15', qty: 200 }], created_at: 'Apr 11, 3:00 PM', updated_at: '' },
 ];
 
 type TabValue = 'store' | 'bulk';
-type ModalState = { orderId: string } | null;
+type ModalState = { orderId: string; type: 'store' | 'bulk' } | null;
 
 export default function PendingOrdersPage() {
   const [tab, setTab] = useState<TabValue>('store');
   const [modal, setModal] = useState<ModalState>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const [storeOrders, setStoreOrders] = useState<StoreOrder[]>(MOCK_STORE);
+  const [bulkOrders, setBulkOrders] = useState<BulkOrder[]>(MOCK_BULK);
+  const [loading, setLoading] = useState(true);
+
+  const loadOrders = useCallback(async () => {
+    const token = getToken();
+    if (!token) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const [store, bulk] = await Promise.allSettled([
+        apiOrders(token, { status: 'confirmed', limit: 100 }),
+        apiBulkOrders(token, { status: 'confirmed', limit: 50 }),
+      ]);
+      if (store.status === 'fulfilled') setStoreOrders(store.value.data.length > 0 ? store.value.data : MOCK_STORE);
+      if (bulk.status === 'fulfilled') setBulkOrders(bulk.value.data.length > 0 ? bulk.value.data : MOCK_BULK);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadOrders(); }, [loadOrders, refreshKey]);
+
+  async function confirmPacked() {
+    if (!modal) return;
+    const token = getToken();
+    if (!token) return;
+    try {
+      if (modal.type === 'store') await apiPackOrder(token, modal.orderId);
+      else await apiPackBulkOrder(token, modal.orderId);
+    } catch { /* ignore */ }
+    setRefreshKey(k => k + 1);
+    setModal(null);
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -35,16 +76,19 @@ export default function PendingOrdersPage() {
             <span className="text-foreground">Pending Orders</span>
           </p>
           <h1 className="text-[20px] font-semibold text-foreground">Pending Orders</h1>
-          <p className="text-[13px] text-muted-foreground mt-0.5">Confirmed orders ready to pack — WH01</p>
+          <p className="text-[13px] text-muted-foreground mt-0.5">
+            Confirmed orders ready to pack
+            {loading && <span className="ml-1 text-[11px] animate-pulse">· Loading…</span>}
+          </p>
         </div>
-        <Badge variant="warning" dot>{orders.length} to pack</Badge>
+        <Badge variant="warning" dot>{storeOrders.length} to pack</Badge>
       </div>
 
       {/* Tabs */}
       <Tabs
         tabs={[
-          { value: 'store', label: 'Store Orders', count: orders.length },
-          { value: 'bulk', label: 'Bulk Orders', count: 2 },
+          { value: 'store', label: 'Store Orders', count: storeOrders.length },
+          { value: 'bulk', label: 'Bulk Orders', count: bulkOrders.length },
         ]}
         active={tab}
         onChange={setTab}
@@ -65,26 +109,31 @@ export default function PendingOrdersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.map((o) => (
-                <TableRow key={o.id}>
-                  <TableCell className="font-mono text-[12px] font-medium">
-                    <div className="flex items-center gap-2">
-                      {o.id}
-                      {o.priority === 'high' && <Badge variant="destructive" dot>Priority</Badge>}
-                    </div>
-                  </TableCell>
-                  <TableCell>{o.store}</TableCell>
-                  <TableCell className="text-muted-foreground max-w-[220px] truncate">{o.items}</TableCell>
-                  <TableCell className="text-right tabular-nums">{o.qty}</TableCell>
-                  <TableCell className="text-muted-foreground text-[12px]">{o.approved}</TableCell>
-                  <TableCell className="text-muted-foreground text-[12px] whitespace-nowrap">{o.created}</TableCell>
-                  <TableCell className="text-right">
-                    <Button size="sm" onClick={() => setModal({ orderId: o.id })}>
-                      Mark Packed
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {storeOrders.length === 0 ? (
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-[13px] text-muted-foreground">No orders to pack</td></tr>
+              ) : storeOrders.map((o) => {
+                const totalQty = o.items.reduce((s, i) => s + i.qty, 0);
+                const itemsSummary = o.items.map(i => `${i.qty}× ${i.name}`).join(', ');
+                return (
+                  <TableRow key={o.id}>
+                    <TableCell className="font-mono text-[12px] font-medium">
+                      <div className="flex items-center gap-2">
+                        {o.id}
+                      </div>
+                    </TableCell>
+                    <TableCell>{o.store}</TableCell>
+                    <TableCell className="text-muted-foreground max-w-[220px] truncate">{itemsSummary}</TableCell>
+                    <TableCell className="text-right tabular-nums">{totalQty}</TableCell>
+                    <TableCell className="text-muted-foreground text-[12px]">{o.by || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground text-[12px] whitespace-nowrap">{o.created}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" onClick={() => setModal({ orderId: o.id, type: 'store' })}>
+                        Mark Packed
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </Card>
@@ -104,30 +153,26 @@ export default function PendingOrdersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow>
-                <TableCell className="font-mono text-[12px] font-medium">BULK-0001</TableCell>
-                <TableCell>Metro Retail Chain</TableCell>
-                <TableCell className="text-muted-foreground">50× Samsung TV</TableCell>
-                <TableCell className="text-right tabular-nums">50</TableCell>
-                <TableCell className="text-muted-foreground text-[12px]">Apr 12, 9:00 AM</TableCell>
-                <TableCell className="text-right">
-                  <Button size="sm" onClick={() => setModal({ orderId: 'BULK-0001' })}>
-                    Mark Packed
-                  </Button>
-                </TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell className="font-mono text-[12px] font-medium">BULK-0002</TableCell>
-                <TableCell>TechMart India</TableCell>
-                <TableCell className="text-muted-foreground">200× iPhone 15</TableCell>
-                <TableCell className="text-right tabular-nums">200</TableCell>
-                <TableCell className="text-muted-foreground text-[12px]">Apr 11, 3:00 PM</TableCell>
-                <TableCell className="text-right">
-                  <Button size="sm" onClick={() => setModal({ orderId: 'BULK-0002' })}>
-                    Mark Packed
-                  </Button>
-                </TableCell>
-              </TableRow>
+              {bulkOrders.length === 0 ? (
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-[13px] text-muted-foreground">No bulk orders to pack</td></tr>
+              ) : bulkOrders.map((o) => {
+                const totalQty = o.items.reduce((s, i) => s + i.qty, 0);
+                const itemsSummary = o.items.map(i => `${i.qty}× ${i.name}`).join(', ');
+                return (
+                  <TableRow key={o.id}>
+                    <TableCell className="font-mono text-[12px] font-medium">{o.id}</TableCell>
+                    <TableCell>{o.client_name}</TableCell>
+                    <TableCell className="text-muted-foreground max-w-[200px] truncate">{itemsSummary}</TableCell>
+                    <TableCell className="text-right tabular-nums">{totalQty}</TableCell>
+                    <TableCell className="text-muted-foreground text-[12px]">{o.created_at}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" onClick={() => setModal({ orderId: o.id, type: 'bulk' })}>
+                        Mark Packed
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </Card>
@@ -140,7 +185,8 @@ export default function PendingOrdersPage() {
         title="Mark Order as Packed"
         description={`Confirm that all items in ${modal?.orderId} have been packed and are ready for dispatch.`}
         confirmLabel="Mark Packed"
-        onConfirm={() => console.log('Packed', modal?.orderId)}
+        confirmVariant="primary"
+        onConfirm={confirmPacked}
       />
     </div>
   );

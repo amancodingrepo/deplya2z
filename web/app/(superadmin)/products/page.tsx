@@ -1,12 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
 import { ChipFilter } from '../../../components/ui/chip-filter';
 import { PlusIcon } from '../../../components/layout/icons';
+import { getToken } from '../../../lib/auth';
+import { apiProducts as fetchProducts } from '../../../lib/api';
+import type { Product } from '../../../lib/api';
 
 /* ─── Data ──────────────────────────────────────── */
 export const products = [
@@ -47,8 +50,33 @@ export default function ProductsPage() {
   const [category, setCategory] = useState('All');
   const [statusFilter, setStatusFilter] = useState('all');
   const [view, setView] = useState<'grid' | 'table'>('grid');
+  const [searchQuery] = useState('');
 
-  const filtered = products.filter((p) => {
+  const [apiProductList, setApiProductList] = useState<Product[]>([]);
+  const [apiLoading, setApiLoading] = useState(true);
+  const [apiMeta, setApiMeta] = useState({ total: 0, page: 1 });
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { setApiLoading(false); return; }
+    let cancelled = false;
+    setApiLoading(true);
+    fetchProducts(token, { search: searchQuery, page: 1, limit: 50 })
+      .then(r => {
+        if (!cancelled) {
+          setApiProductList(r.data);
+          setApiMeta({ total: r.meta.total, page: r.meta.page });
+        }
+      })
+      .catch(() => { /* fall through to mock data */ })
+      .finally(() => { if (!cancelled) setApiLoading(false); });
+    return () => { cancelled = true; };
+  }, [searchQuery]);
+
+  // Use API data if available, fall back to mock data
+  const sourceProducts = apiProductList.length > 0 ? apiProductList : products;
+
+  const filtered = sourceProducts.filter((p) => {
     if (category !== 'All' && p.category !== category) return false;
     if (statusFilter !== 'all' && p.status !== statusFilter) return false;
     return true;
@@ -65,7 +93,7 @@ export default function ProductsPage() {
             <span className="text-foreground">Products</span>
           </p>
           <h1 className="text-[20px] font-semibold text-foreground">Products</h1>
-          <p className="text-[13px] text-muted-foreground mt-0.5">Manage your product catalogue · {products.length} total</p>
+          <p className="text-[13px] text-muted-foreground mt-0.5">Manage your product catalogue · {apiLoading ? '…' : (apiMeta.total || sourceProducts.length)} total</p>
         </div>
         <Link href="/products/create">
           <Button size="sm"><PlusIcon /> Add Product</Button>
@@ -111,7 +139,7 @@ export default function ProductsPage() {
           {filtered.map((p) => (
             <Link key={p.id} href={`/products/${p.id}/edit`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-surface hover:border-primary/50 hover:shadow-sm transition-all">
               <div className="relative aspect-square overflow-hidden bg-surface-raised">
-                <Image src={p.image} alt={p.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" unoptimized />
+                <Image src={p.image ?? 'https://placehold.co/400x400/1a1a2e/4f8ef7?text=Product'} alt={p.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" unoptimized />
                 <span className={`absolute top-2 right-2 size-2.5 rounded-full ring-2 ring-surface ${statusDot[p.status]}`} />
               </div>
               <div className="flex flex-col gap-0.5 p-3">
@@ -142,7 +170,7 @@ export default function ProductsPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="relative size-9 flex-shrink-0 overflow-hidden rounded-md bg-surface-raised">
-                          <Image src={p.image} alt={p.title} fill className="object-cover" unoptimized />
+                          <Image src={p.image ?? 'https://placehold.co/400x400/1a1a2e/4f8ef7?text=Product'} alt={p.title} fill className="object-cover" unoptimized />
                         </div>
                         <div>
                           <p className="font-semibold text-foreground leading-tight">{p.title}</p>
@@ -172,7 +200,7 @@ export default function ProductsPage() {
       )}
 
       <div className="flex items-center justify-between text-[12px] text-muted-foreground">
-        <span>Showing {filtered.length} of {products.length} products</span>
+        <span>Showing {filtered.length} of {sourceProducts.length} products</span>
         <div className="flex items-center gap-1">
           <Button variant="outline" size="sm" disabled>Previous</Button>
           <Button variant="outline" size="sm">Next</Button>

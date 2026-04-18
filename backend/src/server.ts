@@ -3,21 +3,40 @@ import 'dotenv/config';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { pool } from './database/connection.js';
+import { runMigrations } from './scripts/runMigrations.js';
 
-const port = env.port;
-const app = createApp();
+async function start() {
+  // ── Auto-migrate + seed on every startup (idempotent) ──────────────
+  console.log('[startup] Running migrations & seed check…');
+  try {
+    await runMigrations();
+    console.log('[startup] Migrations complete.');
+  } catch (err) {
+    console.error('[startup] Migration failed — continuing anyway:', err);
+    // Don't crash the server if migrations fail (e.g. partial DB setup)
+  }
 
-const server = app.listen(port, () => {
-  console.log(`Store Warehouse backend listening on http://localhost:${port}`);
-});
+  // ── Start Express ────────────────────────────────────────────────────
+  const port = env.port;
+  const app  = createApp();
 
-async function shutdown(signal: string) {
-  console.log(`${signal} received. Shutting down.`);
-  server.close(async () => {
-    await pool.end();
-    process.exit(0);
+  const server = app.listen(port, () => {
+    console.log(`[startup] API listening on http://localhost:${port}`);
   });
+
+  async function shutdown(signal: string) {
+    console.log(`[shutdown] ${signal} received.`);
+    server.close(async () => {
+      await pool.end();
+      process.exit(0);
+    });
+  }
+
+  process.on('SIGINT',  () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
-process.on('SIGINT', () => void shutdown('SIGINT'));
-process.on('SIGTERM', () => void shutdown('SIGTERM'));
+start().catch((err) => {
+  console.error('[startup] Fatal error:', err);
+  process.exit(1);
+});

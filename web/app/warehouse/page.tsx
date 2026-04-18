@@ -1,10 +1,16 @@
+export const dynamic = 'force-dynamic';
+
 import { AppHeader } from '../../components/AppHeader';
 import { InventoryList } from '../../components/InventoryList';
 import { getInventory, loginForRole } from '../../lib/api';
 
 export default async function WarehousePage() {
-  const warehouseToken = await loginForRole('warehouse@company.com', '1234');
-  const warehouseInventory = await getInventory(warehouseToken, 'WH01').catch(() => []);
+  let warehouseToken = '';
+  let warehouseInventory: Awaited<ReturnType<typeof getInventory>> = [];
+  try {
+    warehouseToken = await loginForRole('warehouse@company.com', '1234');
+    warehouseInventory = await getInventory(warehouseToken, 'WH01').catch(() => []);
+  } catch { /* backend not available */ }
 
   return (
     <main style={{ display: 'grid', gap: 16 }}>

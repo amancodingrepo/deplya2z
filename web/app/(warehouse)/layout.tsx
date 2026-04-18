@@ -1,9 +1,12 @@
+'use client';
+
 import type { ReactNode } from 'react';
 import { Sidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
 import {
   HomeIcon, ClipboardIcon, ShoppingCartIcon, TruckIcon, LayersIcon, CogIcon,
 } from '../../components/layout/icons';
+import { getAuth, clearAuth, getUserInitials } from '../../lib/auth';
 
 const navGroups = [
   {
@@ -34,17 +37,23 @@ const navGroups = [
 ];
 
 export default function WarehouseLayout({ children }: { children: ReactNode }) {
+  const auth = getAuth();
+  const userName = auth?.user.name ?? 'Manager';
+  const userInitials = getUserInitials(userName);
+  const locationName = auth?.user.location_name ?? auth?.user.location_code ?? 'Warehouse';
+
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar
         groups={navGroups}
         roleName="Warehouse Manager"
-        locationName="Main Warehouse (WH01)"
-        userName="Sam Park"
-        userInitials="SP"
+        locationName={locationName}
+        userName={userName}
+        userInitials={userInitials}
+        onLogout={() => { clearAuth(); window.location.href = '/login'; }}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header userName="Sam Park" userRole="warehouse_manager" />
+        <Header userName={userName} userRole="warehouse_manager" />
         <main className="flex-1 overflow-y-auto p-6 scrollbar-thin">
           <div className="mx-auto max-w-7xl">
             {children}

@@ -1,12 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Card } from '../../../../components/ui/card';
 import { Badge, statusToBadgeVariant } from '../../../../components/ui/badge';
 import { Button } from '../../../../components/ui/button';
 import { Tabs } from '../../../../components/ui/tabs';
 import { Dialog } from '../../../../components/ui/dialog';
+import { getToken } from '../../../../lib/auth';
+import { apiOrders, apiApproveOrder, apiRejectOrder, apiCancelOrder } from '../../../../lib/api';
+import type { StoreOrder } from '../../../../lib/api';
 
 /* ─── Mock data ──────────────────────────────────── */
 const allOrders = [
@@ -194,7 +197,42 @@ export default function StoreOrdersPage() {
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
-  const filtered = allOrders.filter(o => tab === 'all' ? true : o.status === tab);
+  const [liveOrders, setLiveOrders] = useState<StoreOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+
+  const loadOrders = useCallback(async () => {
+    const token = getToken();
+    if (!token) { setOrdersLoading(false); return; }
+    setOrdersLoading(true);
+    const statusParam = tab === 'all' ? undefined : tab;
+    try {
+      const r = await apiOrders(token, { status: statusParam, limit: 100 });
+      setLiveOrders(r.data);
+    } catch { /* keep mock data */ } finally { setOrdersLoading(false); }
+  }, [tab]);
+
+  useEffect(() => { loadOrders(); }, [loadOrders]);
+
+  // Merge API data with mock data: prefer API if we have results
+  const sourceOrders: Order[] = liveOrders.length > 0
+    ? liveOrders.map(o => ({
+        id: o.id,
+        store: o.store,
+        warehouse: o.warehouse,
+        by: o.by,
+        created: o.created,
+        status: o.status,
+        items: o.items.map(i => ({ name: i.name, sku: i.sku, qty: i.qty, available: i.available ?? 0 })),
+      }))
+    : allOrders;
+
+  const filtered = sourceOrders.filter(o => tab === 'all' ? true : o.status === tab);
+
+  const liveDraftCount = sourceOrders.filter(o => o.status === 'draft').length;
+  const liveConfirmedCount = sourceOrders.filter(o => o.status === 'confirmed').length;
+  const livePackedCount = sourceOrders.filter(o => o.status === 'packed').length;
+  const liveDispatchedCount = sourceOrders.filter(o => o.status === 'dispatched').length;
+  const liveCompletedCount = sourceOrders.filter(o => ['completed', 'cancelled'].includes(o.status)).length;
 
   function summaryLabel(o: Order) {
     return `${o.items.reduce((s, i) => s + i.qty, 0)} units · ${o.items.length} item type${o.items.length > 1 ? 's' : ''}`;
@@ -213,10 +251,10 @@ export default function StoreOrdersPage() {
           <h1 className="text-[20px] font-semibold text-foreground">Store Orders</h1>
           <p className="text-[13px] text-muted-foreground mt-0.5">Review and approve store refill requests</p>
         </div>
-        {draftCount > 0 && (
+        {liveDraftCount > 0 && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-[12px] font-semibold text-warning">
             <span className="size-1.5 rounded-full bg-warning animate-pulse" />
-            {draftCount} awaiting approval
+            {liveDraftCount} awaiting approval
           </span>
         )}
       </div>
@@ -224,12 +262,12 @@ export default function StoreOrdersPage() {
       {/* Tabs */}
       <Tabs
         tabs={[
-          { value: 'all', label: 'All', count: allOrders.length },
-          { value: 'draft', label: 'Awaiting Approval', count: draftCount },
-          { value: 'confirmed', label: 'Confirmed', count: confirmedCount },
-          { value: 'packed', label: 'Packed', count: packedCount },
-          { value: 'dispatched', label: 'Dispatched', count: dispatchedCount },
-          { value: 'completed', label: 'Completed', count: completedCount },
+          { value: 'all', label: 'All', count: sourceOrders.length },
+          { value: 'draft', label: 'Awaiting Approval', count: liveDraftCount },
+          { value: 'confirmed', label: 'Confirmed', count: liveConfirmedCount },
+          { value: 'packed', label: 'Packed', count: livePackedCount },
+          { value: 'dispatched', label: 'Dispatched', count: liveDispatchedCount },
+          { value: 'completed', label: 'Completed', count: liveCompletedCount },
         ]}
         active={tab}
         onChange={setTab}
@@ -285,7 +323,7 @@ export default function StoreOrdersPage() {
           </table>
         </div>
         <div className="border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
-          Showing {filtered.length} of {allOrders.length} orders · Click any row to view details
+          {ordersLoading ? 'Loading…' : `Showing ${filtered.length} of ${sourceOrders.length} orders · Click any row to view details`}
         </div>
       </div>
 
@@ -307,7 +345,15 @@ export default function StoreOrdersPage() {
           title={`Approve ${selectedOrder.id}`}
           confirmLabel="Confirm Approval"
           confirmVariant="primary"
-          onConfirm={() => { setApproveModal(false); setSelectedOrder(null); }}
+          onConfirm={async () => {
+            const token = getToken();
+            if (token && selectedOrder) {
+              try { await apiApproveOrder(token, selectedOrder.id); } catch { /* ignore */ }
+              loadOrders();
+            }
+            setApproveModal(false);
+            setSelectedOrder(null);
+          }}
         >
           <ApproveModalContent order={selectedOrder} />
         </Dialog>
@@ -321,7 +367,16 @@ export default function StoreOrdersPage() {
         description="The store manager will be notified with your reason."
         confirmLabel="Reject Order"
         confirmVariant="destructive"
-        onConfirm={() => { setRejectModal(false); setRejectReason(''); setSelectedOrder(null); }}
+        onConfirm={async () => {
+          const token = getToken();
+          if (token && selectedOrder) {
+            try { await apiRejectOrder(token, selectedOrder.id, rejectReason); } catch { /* ignore */ }
+            loadOrders();
+          }
+          setRejectModal(false);
+          setRejectReason('');
+          setSelectedOrder(null);
+        }}
       >
         <div className="pt-2">
           <label className="block text-[12px] font-medium text-foreground mb-1.5">Rejection Reason <span className="text-destructive">*</span></label>

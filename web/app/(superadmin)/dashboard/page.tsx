@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
@@ -10,6 +10,8 @@ import { InventoryDonutChart } from '../../../components/charts/inventory-donut-
 import {
   BoxIcon, ClipboardIcon, TruckIcon, ExclamationIcon,
 } from '../../../components/layout/icons';
+import { getToken } from '../../../lib/auth';
+import { apiDashboard, apiApproveOrder, apiRejectOrder } from '../../../lib/api';
 
 /* ─── Mock data ─────────────────────────────────── */
 const pendingApprovals = [
@@ -73,6 +75,25 @@ export default function SuperadminDashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
+  const [dashData, setDashData] = useState<Record<string, unknown> | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    let cancelled = false;
+    apiDashboard(token)
+      .then(r => { if (!cancelled) setDashData(r.data); })
+      .catch(() => {/* keep mock data on error */});
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+
+  const kpi = dashData?.kpi as Record<string, number> | undefined;
+  const pendingApprovalsCount = kpi?.pending_approvals ?? pendingApprovals.length;
+  const lowStockCount = kpi?.low_stock_items ?? lowStock.length;
+  const dispatchedToday = kpi?.dispatched_today ?? 7;
+  const activeStores = kpi?.active_stores ?? 5;
+
   return (
     <div className="flex flex-col gap-6">
       {/* Greeting */}
@@ -85,16 +106,16 @@ export default function SuperadminDashboard() {
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1.5 text-[12px] font-semibold text-destructive">
           <span className="size-1.5 rounded-full bg-destructive animate-pulse" />
-          {pendingApprovals.length} items need attention
+          {pendingApprovalsCount} items need attention
         </span>
       </div>
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KPICard label="Pending Approvals" value={String(pendingApprovals.length)} sub="↑ 2 from yesterday" accent="bg-primary/10 text-primary" icon={<ClipboardIcon />} href="/orders/store-orders" />
-        <KPICard label="Low Stock Items" value={String(lowStock.length)} sub="1 item out of stock" accent="bg-destructive/10 text-destructive" icon={<ExclamationIcon />} href="/inventory" />
-        <KPICard label="Dispatched Today" value="7" sub="↑ 3 from yesterday" accent="bg-success/10 text-success" icon={<TruckIcon />} />
-        <KPICard label="Active Stores" value="5" sub="All operational" accent="bg-muted text-muted-foreground" icon={<BoxIcon />} href="/locations" />
+        <KPICard label="Pending Approvals" value={String(pendingApprovalsCount)} sub="↑ 2 from yesterday" accent="bg-primary/10 text-primary" icon={<ClipboardIcon />} href="/orders/store-orders" />
+        <KPICard label="Low Stock Items" value={String(lowStockCount)} sub="1 item out of stock" accent="bg-destructive/10 text-destructive" icon={<ExclamationIcon />} href="/inventory" />
+        <KPICard label="Dispatched Today" value={String(dispatchedToday)} sub="↑ 3 from yesterday" accent="bg-success/10 text-success" icon={<TruckIcon />} />
+        <KPICard label="Active Stores" value={String(activeStores)} sub="All operational" accent="bg-muted text-muted-foreground" icon={<BoxIcon />} href="/locations" />
       </div>
 
       {/* Pending approvals table */}
@@ -227,7 +248,18 @@ export default function SuperadminDashboard() {
         description={`${approving?.items} — ${approving?.units} units from ${approving?.store}. Warehouse: ${approving?.warehouse}`}
         confirmLabel="Confirm Approval"
         confirmVariant="primary"
-        onConfirm={() => setApprovingId(null)}
+        onConfirm={async () => {
+          if (approvingId) {
+            const token = getToken();
+            if (token) {
+              try {
+                await apiApproveOrder(token, approvingId);
+                setRefreshKey(k => k + 1);
+              } catch { /* ignore — UI stays consistent */ }
+            }
+          }
+          setApprovingId(null);
+        }}
       />
     </div>
   );

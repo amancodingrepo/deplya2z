@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { Button } from '../../../components/ui/button';
 import { ThemeToggle } from '../../../components/layout/theme-toggle';
+import { apiLogin, ApiError } from '../../../lib/api';
+import { setAuth, getDashboardRoute } from '../../../lib/auth';
 
 function LogoMark() {
   return (
@@ -62,20 +64,26 @@ export default function LoginPage() {
     setShowDemo(false);
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     if (!email || !password) { setError('Enter your email and password.'); return; }
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      const route = getRoleRoute(email);
-      if (route) {
-        window.location.href = route;
+    try {
+      const result = await apiLogin(email, password);
+      setAuth({ token: result.token, user: result.user });
+      window.location.href = getDashboardRoute(result.user.role);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 401) setError('Invalid credentials. Please try again.');
+        else if (err.status === 429) setError('Too many attempts. Please wait 1 minute.');
+        else setError('Login failed. Check your connection.');
       } else {
-        setError('Invalid credentials. Use the demo credentials below.');
+        setError('Login failed. Check your connection.');
       }
-    }, 500);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
