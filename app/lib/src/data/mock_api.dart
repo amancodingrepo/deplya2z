@@ -73,6 +73,7 @@ class MockApi {
       UserRole.superadmin => 'superadmin',
       UserRole.warehouseManager => 'warehouse_manager',
       UserRole.storeManager => 'store_manager',
+      UserRole.staff => 'staff',
     };
   }
 
@@ -81,9 +82,12 @@ class MockApi {
       'superadmin' => UserRole.superadmin,
       'warehouse_manager' => UserRole.warehouseManager,
       'store_manager' => UserRole.storeManager,
+      'staff' => UserRole.staff,
       _ => UserRole.storeManager,
     };
   }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
 
   Future<UserSession> login({
     required String email,
@@ -114,6 +118,7 @@ class MockApi {
               UserRole.superadmin => 'GLOBAL',
               UserRole.warehouseManager => 'WH01',
               UserRole.storeManager => 'ST01',
+              UserRole.staff => 'ST01',
             },
         token: payload['token'] as String? ?? _uuid.v4(),
         expiry: DateTime.now().add(const Duration(hours: 24)),
@@ -136,6 +141,8 @@ class MockApi {
     }
   }
 
+  // ── Products ──────────────────────────────────────────────────────────────
+
   /// Returns a rich list of products for listing with images.
   Future<List<Product>> fetchProducts(String token) async {
     try {
@@ -152,6 +159,8 @@ class MockApi {
       throw Exception(_errorMessage(error));
     }
   }
+
+  // ── Inventory ─────────────────────────────────────────────────────────────
 
   Future<List<InventoryItem>> fetchInventory(
     String locationId,
@@ -189,6 +198,8 @@ class MockApi {
       throw Exception(_errorMessage(error));
     }
   }
+
+  // ── Orders ────────────────────────────────────────────────────────────────
 
   Future<List<StoreOrder>> fetchOrders(UserSession session) async {
     try {
@@ -242,31 +253,69 @@ class MockApi {
 
   Future<void> syncAction(SyncAction action, UserSession session) async {
     try {
-      if (action.type == SyncActionType.createOrder) {
-        await _dio.post(
-          '/orders',
-          options: _authOptions(session.token, idempotencyKey: action.id),
-          data: {
-            'store_id': action.payload['storeId'] ?? session.locationId,
-            'warehouse_id': action.payload['warehouseId'] ?? 'WH01',
-            'items': action.payload['items'] ?? <dynamic>[],
-          },
-        );
-      } else if (action.type == SyncActionType.markPacked) {
-        await _dio.patch(
-          '/orders/${action.entityId}/pack',
-          options: _authOptions(session.token, idempotencyKey: action.id),
-        );
-      } else if (action.type == SyncActionType.markDispatched) {
-        await _dio.patch(
-          '/orders/${action.entityId}/dispatch',
-          options: _authOptions(session.token, idempotencyKey: action.id),
-        );
-      } else {
-        await _dio.patch(
-          '/orders/${action.entityId}/confirm-receive',
-          options: _authOptions(session.token, idempotencyKey: action.id),
-        );
+      switch (action.type) {
+        case SyncActionType.createOrder:
+          await _dio.post(
+            '/orders',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+            data: {
+              'store_id': action.payload['storeId'] ?? session.locationId,
+              'warehouse_id': action.payload['warehouseId'] ?? 'WH01',
+              'items': action.payload['items'] ?? <dynamic>[],
+            },
+          );
+        case SyncActionType.markPacked:
+          await _dio.patch(
+            '/orders/${action.entityId}/pack',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+          );
+        case SyncActionType.markDispatched:
+          await _dio.patch(
+            '/orders/${action.entityId}/dispatch',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+          );
+        case SyncActionType.confirmReceive:
+          await _dio.patch(
+            '/orders/${action.entityId}/confirm-receive',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+          );
+        case SyncActionType.checkIn:
+          await _dio.post(
+            '/staff/attendance/check-in',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+            data: {
+              'lat': action.payload['lat'],
+              'lng': action.payload['lng'],
+              if (action.payload['notes'] != null)
+                'notes': action.payload['notes'],
+            },
+          );
+        case SyncActionType.checkOut:
+          final attendanceId = action.entityId;
+          await _dio.patch(
+            '/staff/attendance/$attendanceId/check-out',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+            data: {
+              'lat': action.payload['lat'],
+              'lng': action.payload['lng'],
+              if (action.payload['notes'] != null)
+                'notes': action.payload['notes'],
+            },
+          );
+        case SyncActionType.startTask:
+          await _dio.patch(
+            '/staff/tasks/${action.entityId}/start',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+          );
+        case SyncActionType.completeTask:
+          await _dio.patch(
+            '/staff/tasks/${action.entityId}/complete',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+            data: {
+              if (action.payload['completionNote'] != null)
+                'completion_note': action.payload['completionNote'],
+            },
+          );
       }
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -317,6 +366,8 @@ class MockApi {
     );
   }
 
+  // ── Locations ─────────────────────────────────────────────────────────────
+
   Future<List<AppLocation>> fetchLocations(String token) async {
     try {
       final response = await _dio.get<List<dynamic>>(
@@ -334,6 +385,8 @@ class MockApi {
       throw Exception(_errorMessage(error));
     }
   }
+
+  // ── Users / Employees ─────────────────────────────────────────────────────
 
   Future<List<EmployeeUser>> fetchUsers(String token) async {
     try {
@@ -408,6 +461,8 @@ class MockApi {
       throw Exception(_errorMessage(error));
     }
   }
+
+  // ── Inventory CRUD ────────────────────────────────────────────────────────
 
   Future<InventoryItem> createInventoryItem({
     required String token,
@@ -516,6 +571,8 @@ class MockApi {
     }
   }
 
+  // ── Legacy Staff Records (superadmin attendance) ──────────────────────────
+
   Future<StaffRecordsBundle> fetchMyStaffRecords(String token) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
@@ -570,6 +627,230 @@ class MockApi {
       throw Exception(_errorMessage(error));
     }
   }
+
+  // ── Staff Members ─────────────────────────────────────────────────────────
+
+  Future<List<StaffMember>> fetchStaffMembers({
+    required String token,
+    String? locationId,
+  }) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        '/staff/members',
+        queryParameters: {
+          if (locationId != null && locationId.isNotEmpty)
+            'location_id': locationId,
+        },
+        options: _authOptions(token),
+      );
+      final rows = response.data ?? <dynamic>[];
+      return rows
+          .map(
+            (row) =>
+                StaffMember.fromJson(Map<String, dynamic>.from(row as Map)),
+          )
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── GPS Attendance (Staff) ────────────────────────────────────────────────
+
+  /// Records a check-in event. [lat]/[lng] are the device's GPS coordinates.
+  Future<StaffAttendanceRecord> staffCheckIn({
+    required String token,
+    required double lat,
+    required double lng,
+    String? notes,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/staff/attendance/check-in',
+        options: _authOptions(token, idempotencyKey: const Uuid().v4()),
+        data: {
+          'lat': lat,
+          'lng': lng,
+          if (notes != null) 'notes': notes,
+        },
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return StaffAttendanceRecord.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  /// Records a check-out event for an existing attendance record.
+  Future<StaffAttendanceRecord> staffCheckOut({
+    required String token,
+    required String attendanceId,
+    required double lat,
+    required double lng,
+    String? notes,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/staff/attendance/$attendanceId/check-out',
+        options: _authOptions(token, idempotencyKey: const Uuid().v4()),
+        data: {
+          'lat': lat,
+          'lng': lng,
+          if (notes != null) 'notes': notes,
+        },
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return StaffAttendanceRecord.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<List<StaffAttendanceRecord>> fetchStaffAttendance({
+    required String token,
+    String? staffId,
+    int? month,
+    int? year,
+  }) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        '/staff/attendance',
+        queryParameters: {
+          if (staffId != null) 'staff_id': staffId,
+          if (month != null) 'month': month,
+          if (year != null) 'year': year,
+        },
+        options: _authOptions(token),
+      );
+      final rows = response.data ?? <dynamic>[];
+      return rows
+          .map(
+            (row) => StaffAttendanceRecord.fromJson(
+              Map<String, dynamic>.from(row as Map),
+            ),
+          )
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<List<AttendanceMonthlySummary>> fetchAttendanceSummary({
+    required String token,
+    String? locationId,
+    int? month,
+    int? year,
+  }) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        '/staff/attendance/summary',
+        queryParameters: {
+          if (locationId != null) 'location_id': locationId,
+          if (month != null) 'month': month,
+          if (year != null) 'year': year,
+        },
+        options: _authOptions(token),
+      );
+      final rows = response.data ?? <dynamic>[];
+      return rows
+          .map(
+            (row) => AttendanceMonthlySummary.fromJson(
+              Map<String, dynamic>.from(row as Map),
+            ),
+          )
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Tasks ─────────────────────────────────────────────────────────────────
+
+  Future<List<Task>> fetchTasks({
+    required String token,
+    String? assignedToId,
+    String? locationId,
+    String? status,
+  }) async {
+    try {
+      final response = await _dio.get<List<dynamic>>(
+        '/staff/tasks',
+        queryParameters: {
+          if (assignedToId != null) 'assigned_to_id': assignedToId,
+          if (locationId != null) 'location_id': locationId,
+          if (status != null) 'status': status,
+        },
+        options: _authOptions(token),
+      );
+      final rows = response.data ?? <dynamic>[];
+      return rows
+          .map((row) => Task.fromJson(Map<String, dynamic>.from(row as Map)))
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<Task> createTask({
+    required String token,
+    required String title,
+    required String description,
+    required String locationId,
+    required String assignedToId,
+    required TaskPriority priority,
+    required DateTime dueDate,
+    String? relatedOrderId,
+    String? relatedEntityType,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/staff/tasks',
+        options: _authOptions(token),
+        data: {
+          'title': title,
+          'description': description,
+          'location_id': locationId,
+          'assigned_to_id': assignedToId,
+          'priority': priority.apiValue,
+          'due_date': dueDate.toIso8601String().split('T')[0],
+          if (relatedOrderId != null) 'related_order_id': relatedOrderId,
+          if (relatedEntityType != null)
+            'related_entity_type': relatedEntityType,
+        },
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return Task.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<Task> updateTaskStatus({
+    required String token,
+    required String taskId,
+    required TaskStatus status,
+    String? completionNote,
+  }) async {
+    try {
+      final endpoint = status == TaskStatus.inProgress
+          ? '/staff/tasks/$taskId/start'
+          : '/staff/tasks/$taskId/complete';
+
+      final response = await _dio.patch<Map<String, dynamic>>(
+        endpoint,
+        options: _authOptions(token),
+        data: {
+          if (completionNote != null) 'completion_note': completionNote,
+        },
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return Task.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
 
   InventoryItem _inventoryFromApi(Map<String, dynamic> json) {
     return InventoryItem(

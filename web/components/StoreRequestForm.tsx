@@ -3,7 +3,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 
 import type { Product } from '../lib/api';
-import { createStoreOrder } from '../lib/api';
+import { createStoreOrder as createStoreOrderLegacy } from '../lib/api';
 
 type Props = {
   token: string;
@@ -29,7 +29,7 @@ export function StoreRequestForm({ token, storeId, warehouseId, products }: Prop
     setMessage('Submitting...');
 
     try {
-      const result = await createStoreOrder({ token, storeId, warehouseId, productId, qty });
+      const result = await createStoreOrderLegacy({ token, storeId, warehouseId, productId, qty });
       setMessage(`Created ${result.order_id} (${result.status})`);
     } catch (error) {
       setMessage((error as Error).message);

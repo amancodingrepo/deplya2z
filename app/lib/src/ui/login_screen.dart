@@ -287,7 +287,7 @@ class _RoleSelector extends StatelessWidget {
       child: Row(
         children: [
           _roleOption(
-            label: 'Employee',
+            label: 'Admin',
             icon: Icons.admin_panel_settings_rounded,
             role: UserRole.superadmin,
           ),
@@ -302,6 +302,12 @@ class _RoleSelector extends StatelessWidget {
             label: 'Store',
             icon: Icons.store_rounded,
             role: UserRole.storeManager,
+          ),
+          const SizedBox(width: 4),
+          _roleOption(
+            label: 'Staff',
+            icon: Icons.badge_rounded,
+            role: UserRole.staff,
           ),
         ],
       ),

@@ -48,6 +48,7 @@ class _WarehouseScreenState extends ConsumerState<WarehouseScreen> {
                 controller: controller,
                 onViewAll: () => context.go('/inventory'),
               ),
+              _StaffTab(state: state, controller: controller),
               _SettingsTab(controller: controller, state: state),
             ],
           ),
@@ -68,6 +69,13 @@ class _WarehouseScreenState extends ConsumerState<WarehouseScreen> {
       child: BottomNavigationBar(
         currentIndex: _navIndex,
         onTap: (i) => setState(() => _navIndex = i),
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        selectedItemColor: AppTheme.accent,
+        unselectedItemColor: AppTheme.textMuted,
+        selectedFontSize: 11,
+        unselectedFontSize: 11,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_rounded),
@@ -80,6 +88,10 @@ class _WarehouseScreenState extends ConsumerState<WarehouseScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.inventory_2_rounded),
             label: 'Inventory',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.group_rounded),
+            label: 'Staff',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_rounded),
@@ -1269,6 +1281,537 @@ class _SettingsTab extends StatelessWidget {
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Staff Tab — Warehouse Manager
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _StaffTab extends ConsumerWidget {
+  const _StaffTab({required this.state, required this.controller});
+  final dynamic state;
+  final dynamic controller;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final appState = ref.watch(appControllerProvider);
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final members = appState.staffMembers;
+
+    final checkedIn =
+        members.where((m) => m.todayAttendance?.isCheckedIn == true).length;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Staff',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '$checkedIn / ${members.length} checked in today',
+                      style: TextStyle(color: AppTheme.textMuted, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: ctrl.refreshData,
+                icon: Icon(Icons.refresh_rounded, color: AppTheme.textMuted),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Expanded(
+          child: members.isEmpty
+              ? Center(
+                  child: appState.loading
+                      ? const CircularProgressIndicator()
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.group_outlined,
+                              color: AppTheme.textMuted,
+                              size: 48,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'No staff members',
+                              style: TextStyle(color: AppTheme.textMuted),
+                            ),
+                          ],
+                        ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: members.length,
+                  itemBuilder: (context, i) => _StaffMemberCard(
+                    member: members[i],
+                    onCreateTask: () =>
+                        _showTaskSheet(context, members[i], ctrl),
+                    onViewDetail: () =>
+                        _showDetailSheet(context, members[i], ctrl),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  void _showTaskSheet(BuildContext context, StaffMember member, dynamic ctrl) {
+    final titleCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    TaskPriority selectedPriority = TaskPriority.medium;
+    DateTime dueDate = DateTime.now().add(const Duration(days: 1));
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.bgCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Assign Task to ${member.name}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _ModalField(controller: titleCtrl, label: 'Task Title'),
+              const SizedBox(height: 10),
+              _ModalField(
+                controller: descCtrl,
+                label: 'Description',
+                maxLines: 3,
+              ),
+              const SizedBox(height: 10),
+              // Priority
+              Wrap(
+                spacing: 8,
+                children: TaskPriority.values.map((p) {
+                  final color = _pColor(p);
+                  final sel = selectedPriority == p;
+                  return GestureDetector(
+                    onTap: () => setModal(() => selectedPriority = p),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: sel
+                            ? color.withValues(alpha: 0.25)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: sel
+                              ? color
+                              : AppTheme.surfaceLight.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Text(
+                        p.label,
+                        style: TextStyle(
+                          color: sel ? color : AppTheme.textMuted,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Text(
+                    'Due: ${DateFormat('d MMM yyyy').format(dueDate)}',
+                    style: TextStyle(color: AppTheme.textMuted),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: dueDate,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(
+                          const Duration(days: 365),
+                        ),
+                        builder: (c, child) =>
+                            Theme(data: ThemeData.dark(), child: child!),
+                      );
+                      if (picked != null) setModal(() => dueDate = picked);
+                    },
+                    child: const Text('Pick Date'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (titleCtrl.text.trim().isEmpty) return;
+                    ctrl.createTask(
+                      title: titleCtrl.text.trim(),
+                      description: descCtrl.text.trim(),
+                      assignedToId: member.userId,
+                      priority: selectedPriority,
+                      dueDate: dueDate,
+                    );
+                    Navigator.pop(ctx);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.accent,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text(
+                    'Create Task',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDetailSheet(
+    BuildContext context,
+    StaffMember member,
+    dynamic ctrl,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.bgCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        maxChildSize: 0.9,
+        builder: (ctx, scroll) => ListView(
+          controller: scroll,
+          padding: const EdgeInsets.all(20),
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: AppTheme.accent.withValues(alpha: 0.2),
+                  child: Text(
+                    member.initials,
+                    style: TextStyle(
+                      color: AppTheme.accent,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        member.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        member.designation,
+                        style: TextStyle(
+                          color: AppTheme.textMuted,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _StaffBadge(status: member.status),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(color: Colors.white12),
+            _DRow(label: 'Email', value: member.email),
+            _DRow(label: 'Code', value: member.employeeCode),
+            _DRow(label: 'Open Tasks', value: '${member.openTaskCount}'),
+            const SizedBox(height: 12),
+            const Text(
+              'Today',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (member.todayAttendance == null)
+              Text(
+                'Not checked in',
+                style: TextStyle(color: AppTheme.textMuted),
+              )
+            else
+              Row(
+                children: [
+                  Icon(
+                    Icons.check_circle_rounded,
+                    color: AppTheme.success,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'In at ${member.todayAttendance!.checkInTime != null ? DateFormat("hh:mm a").format(member.todayAttendance!.checkInTime!) : "—"}',
+                    style: TextStyle(color: AppTheme.success),
+                  ),
+                ],
+              ),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showTaskSheet(context, member, ctrl);
+              },
+              icon: const Icon(Icons.add_task_rounded),
+              label: const Text('Assign Task'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.accent,
+                side: BorderSide(color: AppTheme.accent),
+                minimumSize: const Size(double.infinity, 46),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _pColor(TaskPriority p) => switch (p) {
+    TaskPriority.urgent => AppTheme.error,
+    TaskPriority.high => AppTheme.warning,
+    TaskPriority.medium => AppTheme.accent,
+    TaskPriority.low => AppTheme.success,
+  };
+}
+
+// ── Shared staff helper widgets used by both warehouse & store tabs ───────────
+
+class _StaffMemberCard extends StatelessWidget {
+  const _StaffMemberCard({
+    required this.member,
+    required this.onCreateTask,
+    required this.onViewDetail,
+  });
+  final StaffMember member;
+  final VoidCallback onCreateTask;
+  final VoidCallback onViewDetail;
+
+  @override
+  Widget build(BuildContext context) {
+    final checkedIn = member.todayAttendance?.isCheckedIn ?? false;
+
+    return GestureDetector(
+      onTap: onViewDetail,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.bgCard,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: AppTheme.surfaceLight.withValues(alpha: 0.2),
+          ),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: (checkedIn ? AppTheme.success : AppTheme.textMuted)
+                  .withValues(alpha: 0.2),
+              child: Text(
+                member.initials,
+                style: TextStyle(
+                  color: checkedIn ? AppTheme.success : AppTheme.textMuted,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    member.name,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    member.designation,
+                    style: TextStyle(
+                      color: AppTheme.textMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _StaffBadge(status: member.status),
+                if (member.openTaskCount > 0) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '${member.openTaskCount} tasks',
+                    style: TextStyle(color: AppTheme.warning, fontSize: 11),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(width: 6),
+            IconButton(
+              onPressed: onCreateTask,
+              icon: Icon(
+                Icons.add_task_rounded,
+                color: AppTheme.accent,
+                size: 20,
+              ),
+              tooltip: 'Assign Task',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StaffBadge extends StatelessWidget {
+  const _StaffBadge({required this.status});
+  final StaffStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, label) = switch (status) {
+      StaffStatus.active => (AppTheme.success, 'Active'),
+      StaffStatus.inactive => (AppTheme.error, 'Inactive'),
+      StaffStatus.onLeave => (AppTheme.warning, 'Leave'),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _DRow extends StatelessWidget {
+  const _DRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: TextStyle(color: AppTheme.textMuted, fontSize: 13),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModalField extends StatelessWidget {
+  const _ModalField({
+    required this.controller,
+    required this.label,
+    this.maxLines = 1,
+  });
+  final TextEditingController controller;
+  final String label;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      style: const TextStyle(color: Colors.white),
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: TextStyle(color: AppTheme.textMuted),
+        enabledBorder: OutlineInputBorder(
+          borderSide: BorderSide(
+            color: AppTheme.surfaceLight.withValues(alpha: 0.3),
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: BorderSide(color: AppTheme.accent),
+          borderRadius: BorderRadius.circular(10),
+        ),
       ),
     );
   }

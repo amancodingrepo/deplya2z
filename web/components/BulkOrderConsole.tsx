@@ -3,7 +3,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 
 import type { BulkOrder, ClientStore, Product } from '../lib/api';
-import { createBulkOrder } from '../lib/api';
+import { createBulkOrder as createBulkOrderLegacy } from '../lib/api';
 
 type Props = {
   token: string;
@@ -24,7 +24,7 @@ export function BulkOrderConsole({ token, warehouseId, clients, products, initia
     () =>
       clients.map((client) => ({
         value: client.id,
-        label: client.store_name,
+        label: (client as ClientStore & { store_name?: string }).store_name ?? client.name,
       })),
     [clients],
   );
@@ -47,7 +47,7 @@ export function BulkOrderConsole({ token, warehouseId, clients, products, initia
 
     setMessage('Submitting bulk order...');
     try {
-      const created = await createBulkOrder({
+      const created = await createBulkOrderLegacy({
         token,
         clientStoreId: clientId,
         warehouseId,
@@ -58,16 +58,18 @@ export function BulkOrderConsole({ token, warehouseId, clients, products, initia
       setOrders((prev) => [
         {
           id: created.id,
-          order_id: created.order_id,
-          status: created.status,
-          client_store_id: clientId,
+          status: created.status as BulkOrder['status'],
+          client_id: clientId,
+          client_name: '',
           warehouse_id: warehouseId,
-          items: [{ product_id: productId, qty }],
+          warehouse: warehouseId,
+          items: [{ id: '', product_id: productId, sku: '', name: '', qty }],
           created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         },
         ...prev,
       ]);
-      setMessage(`Created ${created.order_id} (${created.status})`);
+      setMessage(`Created ${created.id} (${created.status})`);
     } catch (error) {
       setMessage((error as Error).message);
     }
@@ -121,7 +123,7 @@ export function BulkOrderConsole({ token, warehouseId, clients, products, initia
         <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 8 }}>
           {orders.map((order) => (
             <li key={order.id}>
-              <strong>{order.order_id}</strong> - {order.status} - {new Date(order.created_at).toLocaleString()}
+              <strong>{order.id}</strong> - {order.status} - {new Date(order.created_at).toLocaleString()}
             </li>
           ))}
         </ul>

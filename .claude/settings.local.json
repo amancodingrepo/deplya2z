@@ -11,7 +11,20 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
       "Bash(npx kill-port:*)",
       "Bash(set NODE_OPTIONS=--max-old-space-size=4096)",
-      "Bash(npx next *)"
+      "Bash(npx next *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git add *)",
+      "Bash(gh pr *)",
+      "Bash(where gh *)",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\Asus\\\\Desktop\\\\A2z\\\\app\\\\lib\\\\src\\\\ui\\\\warehouse_screen.dart' | Measure-Object -Line\")",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\Asus\\\\Desktop\\\\A2z\\\\app\\\\lib\\\\src\\\\ui\\\\store_screen.dart' | Measure-Object -Line\")",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\Asus\\\\Desktop\\\\A2z\\\\app\\\\lib\\\\src\\\\ui\\\\store_screen.dart' | Select-Object -Last 20\")",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\Asus\\\\Desktop\\\\A2z\\\\app\\\\lib\\\\src\\\\ui\\\\warehouse_screen.dart' | Select-Object -Last 10\")",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\Asus\\\\Desktop\\\\A2z\\\\app\\\\lib\\\\src\\\\ui\\\\warehouse_screen.dart' | Select-Object -Last 5\")",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\Asus\\\\Desktop\\\\A2z\\\\app\\\\ios\\\\Runner\\\\Info.plist' | Select-Object -Last 10\")",
+      "Bash(dir \"C:\\\\Users\\\\Asus\\\\Desktop\\\\A2z\")",
+      "Bash(xargs grep *)"
     ]
   },
   "enableAllProjectMcpServers": true,

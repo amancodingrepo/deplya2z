@@ -45,5 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Location permissions for GPS check-in/check-out -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app uses your location to verify you are at your work location when checking in or out.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>This app uses your location to verify you are at your work location when checking in or out.</string>
 </dict>
 </plist>

@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' show asin, cos, pi, sin, sqrt;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/local_store.dart';
@@ -27,6 +29,8 @@ class AppController extends StateNotifier<AppState> {
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
+  // ── Init ──────────────────────────────────────────────────────────────────
+
   Future<void> initialize() async {
     await _store.init();
 
@@ -34,6 +38,8 @@ class AppController extends StateNotifier<AppState> {
     final orders = _store.readOrders();
     final inventory = _store.readInventory();
     final queue = _store.readQueue();
+    final tasks = _store.readTasks();
+    final todayAttendance = _store.readTodayAttendance();
 
     state = state.copyWith(
       initialized: true,
@@ -41,6 +47,8 @@ class AppController extends StateNotifier<AppState> {
       orders: orders,
       inventory: inventory,
       syncQueue: queue,
+      myTasks: tasks,
+      todayAttendance: todayAttendance,
       isOnline: true,
     );
 
@@ -82,6 +90,8 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
   Future<void> login({
     required String email,
     required String password,
@@ -117,6 +127,8 @@ class AppController extends StateNotifier<AppState> {
     );
   }
 
+  // ── Data refresh ──────────────────────────────────────────────────────────
+
   Future<void> refreshData() async {
     final session = state.session;
     if (session == null || !state.isOnline) {
@@ -148,6 +160,12 @@ class AppController extends StateNotifier<AppState> {
         return;
       }
 
+      if (session.role == UserRole.staff) {
+        await _refreshStaffData(session);
+        return;
+      }
+
+      // Warehouse manager / Store manager
       final products = await _api.fetchProducts(session.token);
       final inventory = await _api.fetchInventory(
         session.locationId,
@@ -155,10 +173,32 @@ class AppController extends StateNotifier<AppState> {
       );
       final orders = await _api.fetchOrders(session);
       final locations = await _api.fetchLocations(session.token);
-      final staff = await _api.fetchMyStaffRecords(session.token);
+      final staffBundle = await _api.fetchMyStaffRecords(session.token);
+
+      // Load staff members for the manager's location
+      List<StaffMember> staffMembers = [];
+      List<AttendanceMonthlySummary> summaries = [];
+      try {
+        staffMembers = await _api.fetchStaffMembers(
+          token: session.token,
+          locationId: session.locationId,
+        );
+        final now = DateTime.now();
+        summaries = await _api.fetchAttendanceSummary(
+          token: session.token,
+          locationId: session.locationId,
+          month: now.month,
+          year: now.year,
+        );
+      } catch (_) {
+        // non-critical — gracefully ignore if not implemented yet
+      }
 
       await _store.replaceInventory(inventory);
       await _store.replaceOrders(orders);
+      if (staffMembers.isNotEmpty) {
+        await _store.replaceStaff(staffMembers);
+      }
 
       state = state.copyWith(
         loading: false,
@@ -166,11 +206,13 @@ class AppController extends StateNotifier<AppState> {
         inventory: inventory,
         orders: orders,
         locations: locations,
-        attendanceRecords: staff.attendance,
-        salaryPayouts: staff.salaryPayouts,
-        leaveRecords: staff.leaveRecords,
+        attendanceRecords: staffBundle.attendance,
+        salaryPayouts: staffBundle.salaryPayouts,
+        leaveRecords: staffBundle.leaveRecords,
         adminInventory: const <InventoryItem>[],
         employees: const <EmployeeUser>[],
+        staffMembers: staffMembers,
+        attendanceSummary: summaries,
       );
     } catch (error) {
       state = state.copyWith(
@@ -179,6 +221,435 @@ class AppController extends StateNotifier<AppState> {
       );
     }
   }
+
+  Future<void> _refreshStaffData(UserSession session) async {
+    try {
+      final locations = await _api.fetchLocations(session.token);
+      final tasks = await _api.fetchTasks(
+        token: session.token,
+        assignedToId: session.id,
+      );
+      final now = DateTime.now();
+      final attendance = await _api.fetchStaffAttendance(
+        token: session.token,
+        month: now.month,
+        year: now.year,
+      );
+
+      // Find today's record
+      final todayDate = DateTime(now.year, now.month, now.day);
+      StaffAttendanceRecord? todayRecord;
+      try {
+        todayRecord = attendance.firstWhere(
+          (r) {
+            final d = r.date;
+            return d.year == todayDate.year &&
+                d.month == todayDate.month &&
+                d.day == todayDate.day;
+          },
+        );
+      } catch (_) {
+        todayRecord = null;
+      }
+
+      await _store.replaceTasks(tasks);
+      if (todayRecord != null) {
+        await _store.writeTodayAttendance(todayRecord);
+      }
+
+      state = state.copyWith(
+        loading: false,
+        locations: locations,
+        myTasks: tasks,
+        staffAttendance: attendance,
+        todayAttendance: todayRecord,
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  // ── GPS Attendance ────────────────────────────────────────────────────────
+
+  /// Requests location permission and returns the current [Position].
+  /// Throws a descriptive [Exception] on permission denial or service
+  /// unavailability.
+  Future<Position> _getPosition() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception(
+        'Location services are disabled. Please enable GPS and try again.',
+      );
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        throw Exception(
+          'Location permission denied. Please allow location access.',
+        );
+      }
+    }
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception(
+        'Location permission permanently denied. '
+        'Enable it in App Settings → Permissions.',
+      );
+    }
+
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 15),
+      ),
+    );
+  }
+
+  /// Haversine distance in metres between two GPS coordinates.
+  double _haversineMeters(
+    double lat1,
+    double lng1,
+    double lat2,
+    double lng2,
+  ) {
+    const earthRadius = 6371000.0; // metres
+    final dLat = _toRad(lat2 - lat1);
+    final dLng = _toRad(lng2 - lng1);
+    final a =
+        sin(dLat / 2) * sin(dLat / 2) +
+        cos(_toRad(lat1)) *
+            cos(_toRad(lat2)) *
+            sin(dLng / 2) *
+            sin(dLng / 2);
+    final c = 2 * asin(sqrt(a));
+    return earthRadius * c;
+  }
+
+  double _toRad(double deg) => deg * pi / 180;
+
+  /// GPS check-in for the currently logged-in staff member.
+  Future<void> staffCheckIn({String? notes}) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.staff) {
+      state = state.copyWith(message: 'Only staff can check in.');
+      return;
+    }
+
+    if (state.todayAttendance?.isCheckedIn == true) {
+      state = state.copyWith(message: 'Already checked in today.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      final pos = await _getPosition();
+      final lat = pos.latitude;
+      final lng = pos.longitude;
+
+      // Validate against geofence if location has coords
+      final myLocation = _findLocation(session.locationId);
+      if (myLocation?.geoLat != null && myLocation?.geoLng != null) {
+        final dist = _haversineMeters(
+          lat,
+          lng,
+          myLocation!.geoLat!,
+          myLocation.geoLng!,
+        );
+        final radius = myLocation.geofenceRadius ?? 200;
+        if (dist > radius) {
+          state = state.copyWith(
+            loading: false,
+            message:
+                'You are ${dist.toStringAsFixed(0)} m away from your location. '
+                'Must be within ${radius} m to check in.',
+          );
+          return;
+        }
+      }
+
+      if (!state.isOnline) {
+        // Queue offline check-in
+        final action = SyncAction(
+          id: _uuid.v4(),
+          type: SyncActionType.checkIn,
+          entityId: '',
+          payload: {
+            'lat': lat,
+            'lng': lng,
+            if (notes != null) 'notes': notes,
+          },
+          createdAt: DateTime.now(),
+          status: SyncStatus.pendingUpload,
+          retryCount: 0,
+        );
+        await _store.upsertQueueItem(action);
+        state = state.copyWith(
+          loading: false,
+          syncQueue: [...state.syncQueue, action],
+          message: 'Check-in saved offline. Will sync when online.',
+        );
+        return;
+      }
+
+      final record = await _api.staffCheckIn(
+        token: session.token,
+        lat: lat,
+        lng: lng,
+        notes: notes,
+      );
+      await _store.writeTodayAttendance(record);
+      state = state.copyWith(
+        loading: false,
+        todayAttendance: record,
+        message: 'Checked in successfully!',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  /// GPS check-out for the currently logged-in staff member.
+  Future<void> staffCheckOut({String? notes}) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.staff) {
+      state = state.copyWith(message: 'Only staff can check out.');
+      return;
+    }
+
+    final today = state.todayAttendance;
+    if (today == null || !today.isCheckedIn) {
+      state = state.copyWith(message: 'You have not checked in today.');
+      return;
+    }
+    if (today.isCheckedOut) {
+      state = state.copyWith(message: 'Already checked out today.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      final pos = await _getPosition();
+      final lat = pos.latitude;
+      final lng = pos.longitude;
+
+      if (!state.isOnline) {
+        final action = SyncAction(
+          id: _uuid.v4(),
+          type: SyncActionType.checkOut,
+          entityId: today.id,
+          payload: {
+            'lat': lat,
+            'lng': lng,
+            if (notes != null) 'notes': notes,
+          },
+          createdAt: DateTime.now(),
+          status: SyncStatus.pendingUpload,
+          retryCount: 0,
+        );
+        await _store.upsertQueueItem(action);
+        state = state.copyWith(
+          loading: false,
+          syncQueue: [...state.syncQueue, action],
+          message: 'Check-out saved offline. Will sync when online.',
+        );
+        return;
+      }
+
+      final record = await _api.staffCheckOut(
+        token: session.token,
+        attendanceId: today.id,
+        lat: lat,
+        lng: lng,
+        notes: notes,
+      );
+      await _store.writeTodayAttendance(record);
+      state = state.copyWith(
+        loading: false,
+        todayAttendance: record,
+        message: 'Checked out successfully!',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  AppLocation? _findLocation(String locationId) {
+    try {
+      return state.locations.firstWhere(
+        (l) => l.id == locationId || l.code == locationId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Tasks ─────────────────────────────────────────────────────────────────
+
+  Future<void> createTask({
+    required String title,
+    required String description,
+    required String assignedToId,
+    required TaskPriority priority,
+    required DateTime dueDate,
+    String? relatedOrderId,
+  }) async {
+    final session = state.session;
+    if (session == null) return;
+    if (session.role != UserRole.warehouseManager &&
+        session.role != UserRole.storeManager) {
+      state = state.copyWith(message: 'Only managers can create tasks.');
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Task creation requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.createTask(
+        token: session.token,
+        title: title,
+        description: description,
+        locationId: session.locationId,
+        assignedToId: assignedToId,
+        priority: priority,
+        dueDate: dueDate,
+        relatedOrderId: relatedOrderId,
+      );
+      // Reload staff to update open_task_count
+      final members = await _api.fetchStaffMembers(
+        token: session.token,
+        locationId: session.locationId,
+      );
+      await _store.replaceStaff(members);
+      state = state.copyWith(
+        loading: false,
+        staffMembers: members,
+        message: 'Task created successfully.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> startTask(String taskId) async {
+    await _updateTaskStatus(taskId, TaskStatus.inProgress);
+  }
+
+  Future<void> completeTask(String taskId, {String? completionNote}) async {
+    await _updateTaskStatus(
+      taskId,
+      TaskStatus.completed,
+      completionNote: completionNote,
+    );
+  }
+
+  Future<void> _updateTaskStatus(
+    String taskId,
+    TaskStatus status, {
+    String? completionNote,
+  }) async {
+    final session = state.session;
+    if (session == null) return;
+
+    if (state.isOnline) {
+      state = state.copyWith(loading: true, clearMessage: true);
+      try {
+        final updated = await _api.updateTaskStatus(
+          token: session.token,
+          taskId: taskId,
+          status: status,
+          completionNote: completionNote,
+        );
+        final tasks = state.myTasks.map((t) => t.id == taskId ? updated : t).toList();
+        await _store.replaceTasks(tasks);
+        state = state.copyWith(
+          loading: false,
+          myTasks: tasks,
+          message: 'Task updated.',
+        );
+        return;
+      } catch (_) {
+        state = state.copyWith(loading: false);
+      }
+    }
+
+    // Offline — update locally and queue
+    final updatedTasks = state.myTasks.map((t) {
+      if (t.id != taskId) return t;
+      return t.copyWith(
+        status: status,
+        completedAt:
+            status == TaskStatus.completed ? DateTime.now() : t.completedAt,
+        completionNote: completionNote ?? t.completionNote,
+        syncStatus: SyncStatus.pendingUpload,
+      );
+    }).toList();
+    await _store.replaceTasks(updatedTasks);
+
+    final actionType = status == TaskStatus.inProgress
+        ? SyncActionType.startTask
+        : SyncActionType.completeTask;
+    final action = SyncAction(
+      id: _uuid.v4(),
+      type: actionType,
+      entityId: taskId,
+      payload: {
+        if (completionNote != null) 'completionNote': completionNote,
+      },
+      createdAt: DateTime.now(),
+      status: SyncStatus.pendingUpload,
+      retryCount: 0,
+    );
+    await _store.upsertQueueItem(action);
+
+    state = state.copyWith(
+      myTasks: updatedTasks,
+      syncQueue: [...state.syncQueue, action],
+      message: 'Task updated offline. Will sync when online.',
+    );
+  }
+
+  /// Manager loads detailed attendance for a specific staff member.
+  Future<void> loadStaffAttendance({
+    required String staffId,
+    int? month,
+    int? year,
+  }) async {
+    final session = state.session;
+    if (session == null || !state.isOnline) return;
+
+    try {
+      final records = await _api.fetchStaffAttendance(
+        token: session.token,
+        staffId: staffId,
+        month: month,
+        year: year,
+      );
+      state = state.copyWith(staffAttendance: records);
+    } catch (error) {
+      state = state.copyWith(
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  // ── Image ─────────────────────────────────────────────────────────────────
 
   /// Update the local image path on an inventory item (camera/gallery pick).
   void setProductImage(String productId, String localPath) {
@@ -201,6 +672,8 @@ class AppController extends StateNotifier<AppState> {
       products: updatedProducts,
     );
   }
+
+  // ── Orders ────────────────────────────────────────────────────────────────
 
   Future<void> createOrderRequest({
     required String productId,
@@ -360,6 +833,8 @@ class AppController extends StateNotifier<AppState> {
     );
   }
 
+  // ── Sync ──────────────────────────────────────────────────────────────────
+
   Future<void> syncPendingActions() async {
     if (!state.isOnline || state.syncQueue.isEmpty || state.session == null) {
       return;
@@ -394,6 +869,8 @@ class AppController extends StateNotifier<AppState> {
           : '${nextQueue.length} queued action(s) need manual review.',
     );
   }
+
+  // ── Employees (superadmin) ────────────────────────────────────────────────
 
   Future<void> createEmployee({
     required String name,
@@ -531,6 +1008,8 @@ class AppController extends StateNotifier<AppState> {
       );
     }
   }
+
+  // ── Inventory ─────────────────────────────────────────────────────────────
 
   Future<void> createInventoryItem({
     required String sku,
@@ -674,6 +1153,8 @@ class AppController extends StateNotifier<AppState> {
       );
     }
   }
+
+  // ── Misc ──────────────────────────────────────────────────────────────────
 
   void clearMessage() {
     state = state.copyWith(clearMessage: true);

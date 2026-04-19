@@ -17,6 +17,12 @@ class AppState {
     required this.leaveRecords,
     required this.adminInventory,
     required this.message,
+    // Staff Management
+    required this.staffMembers,
+    required this.myTasks,
+    this.todayAttendance,
+    required this.staffAttendance,
+    required this.attendanceSummary,
   });
 
   final bool initialized;
@@ -34,6 +40,23 @@ class AppState {
   final List<LeaveRecord> leaveRecords;
   final List<InventoryItem> adminInventory;
   final String? message;
+
+  // ── Staff Management ──────────────────────────────────────────────────────
+  /// Staff members at the manager's location (for warehouse/store managers).
+  final List<StaffMember> staffMembers;
+
+  /// Tasks assigned to the currently logged-in staff user.
+  final List<Task> myTasks;
+
+  /// Today's attendance record for the currently logged-in staff user (null
+  /// if not yet checked in today).
+  final StaffAttendanceRecord? todayAttendance;
+
+  /// Detailed attendance records — loaded by managers for their staff.
+  final List<StaffAttendanceRecord> staffAttendance;
+
+  /// Monthly attendance summaries for all staff at the manager's location.
+  final List<AttendanceMonthlySummary> attendanceSummary;
 
   bool get isLoggedIn => session != null;
 
@@ -55,6 +78,13 @@ class AppState {
     List<InventoryItem>? adminInventory,
     String? message,
     bool clearMessage = false,
+    // Staff Management
+    List<StaffMember>? staffMembers,
+    List<Task>? myTasks,
+    StaffAttendanceRecord? todayAttendance,
+    bool clearTodayAttendance = false,
+    List<StaffAttendanceRecord>? staffAttendance,
+    List<AttendanceMonthlySummary>? attendanceSummary,
   }) {
     return AppState(
       initialized: initialized ?? this.initialized,
@@ -72,6 +102,14 @@ class AppState {
       leaveRecords: leaveRecords ?? this.leaveRecords,
       adminInventory: adminInventory ?? this.adminInventory,
       message: clearMessage ? null : (message ?? this.message),
+      // Staff
+      staffMembers: staffMembers ?? this.staffMembers,
+      myTasks: myTasks ?? this.myTasks,
+      todayAttendance: clearTodayAttendance
+          ? null
+          : (todayAttendance ?? this.todayAttendance),
+      staffAttendance: staffAttendance ?? this.staffAttendance,
+      attendanceSummary: attendanceSummary ?? this.attendanceSummary,
     );
   }
 
@@ -91,5 +129,11 @@ class AppState {
     leaveRecords: <LeaveRecord>[],
     adminInventory: <InventoryItem>[],
     message: null,
+    // Staff
+    staffMembers: <StaffMember>[],
+    myTasks: <Task>[],
+    todayAttendance: null,
+    staffAttendance: <StaffAttendanceRecord>[],
+    attendanceSummary: <AttendanceMonthlySummary>[],
   );
 }
