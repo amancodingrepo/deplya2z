@@ -576,6 +576,127 @@ export const apiCreateTransfer = (token: string, body: {
     body: JSON.stringify(body),
   });
 
+/* ─── STAFF ─────────────────────────────────────── */
+export interface StaffMember {
+  id: string;
+  user_id: string;
+  location_id: string;
+  location_code: string;
+  location_name: string;
+  employee_code: string | null;
+  designation: string | null;
+  joining_date: string | null;
+  working_days_per_week: number;
+  phone: string | null;
+  status: 'active' | 'inactive';
+  email: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  staff_id: string;
+  date: string;
+  check_in_time: string | null;
+  check_out_time: string | null;
+  check_in_lat: number | null;
+  check_in_lng: number | null;
+  check_out_lat: number | null;
+  check_out_lng: number | null;
+  check_in_distance_meters: number | null;
+  check_out_distance_meters: number | null;
+  is_within_geofence: boolean;
+  is_late: boolean;
+  late_by_minutes: number | null;
+  status: 'present' | 'absent' | 'late' | 'half_day' | 'leave';
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceSummary {
+  present: number;
+  absent: number;
+  late: number;
+  half_day: number;
+  leave: number;
+}
+
+export interface Task {
+  id: string;
+  task_code: string;
+  title: string;
+  description: string | null;
+  location_id: string;
+  assigned_to_id: string | null;
+  assigned_by_id: string;
+  assignee_name: string | null;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  due_date: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  completion_note: string | null;
+  related_order_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const apiStaffMembers = (token: string) =>
+  apiFetch<StaffMember[]>('/staff/members', token);
+
+export const apiCreateStaffMember = (token: string, body: {
+  user_id: string; location_code: string; employee_code?: string;
+  designation?: string; joining_date?: string; working_days_per_week?: number; phone?: string;
+}) =>
+  apiFetch<StaffMember>('/staff/members', token, { method: 'POST', body: JSON.stringify(body) });
+
+export const apiStaffAttendance = (token: string, params?: {
+  staff_id?: string; date_from?: string; date_to?: string;
+}) => {
+  const q = new URLSearchParams();
+  if (params?.staff_id) q.set('staff_id', params.staff_id);
+  if (params?.date_from) q.set('date_from', params.date_from);
+  if (params?.date_to) q.set('date_to', params.date_to);
+  const qs = q.toString();
+  return apiFetch<AttendanceRecord[]>(`/staff/attendance${qs ? `?${qs}` : ''}`, token);
+};
+
+export const apiStaffAttendanceSummary = (token: string, params: {
+  staff_id?: string; year?: number; month?: number;
+}) => {
+  const q = new URLSearchParams();
+  if (params.staff_id) q.set('staff_id', params.staff_id);
+  if (params.year) q.set('year', String(params.year));
+  if (params.month) q.set('month', String(params.month));
+  return apiFetch<AttendanceSummary>(`/staff/attendance/summary?${q.toString()}`, token);
+};
+
+export const apiStaffTasks = (token: string, params?: { status?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.status) q.set('status', params.status);
+  const qs = q.toString();
+  return apiFetch<Task[]>(`/staff/tasks${qs ? `?${qs}` : ''}`, token);
+};
+
+export const apiCreateTask = (token: string, body: {
+  title: string; description?: string; assigned_to_staff_id?: string;
+  priority?: 'low' | 'medium' | 'high' | 'urgent'; due_date?: string;
+  related_order_id?: string;
+}) =>
+  apiFetch<Task>('/staff/tasks', token, { method: 'POST', body: JSON.stringify(body) });
+
+export const apiStartTask = (token: string, id: string) =>
+  apiFetch<Task>(`/staff/tasks/${id}/start`, token, { method: 'PATCH' });
+
+export const apiCompleteTask = (token: string, id: string, completion_note?: string) =>
+  apiFetch<Task>(`/staff/tasks/${id}/complete`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ completion_note }),
+  });
+
 /* ─── Legacy type aliases ───────────────────────── */
 /** @deprecated Use InventoryRow instead */
 export type InventoryItem = InventoryRow & {

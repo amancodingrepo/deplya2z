@@ -17,6 +17,7 @@ import { notificationsRouter } from './routes/notifications.js';
 import { ordersRouter } from './routes/orders.js';
 import { productsRouter } from './routes/products.js';
 import { reportsRouter } from './routes/reports.js';
+import { staffRouter } from './routes/staff.js';
 import { transfersRouter } from './routes/transfers.js';
 import { uploadRouter } from './routes/upload.js';
 import { usersRouter } from './routes/users.js';
@@ -93,6 +94,7 @@ export function createApp() {
     app.use(`${prefix}/upload`, uploadRouter);
     app.use(`${prefix}/reports`, reportsRouter);
     app.use(`${prefix}/notifications`, notificationsRouter);
+    app.use(`${prefix}/staff`, staffRouter);
     app.use(`${prefix}/transfers`, transfersRouter);
 
     // Versioned health endpoint

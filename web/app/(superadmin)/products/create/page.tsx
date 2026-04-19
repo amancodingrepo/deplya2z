@@ -2,10 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../../components/ui/card';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Select } from '../../../../components/ui/select';
+import { getToken } from '../../../../lib/auth';
+import { apiCreateProduct } from '../../../../lib/api';
 
 const categoryOptions = [
   { value: 'Electronics', label: 'Electronics' },
@@ -32,13 +35,8 @@ const tagOptions = [
 ];
 
 const categoryPrefix: Record<string, string> = {
-  Electronics: 'EL',
-  Monitors: 'MO',
-  Appliances: 'AP',
-  Laptops: 'CO',
-  Phones: 'PH',
-  Audio: 'AU',
-  Tablets: 'TB',
+  Electronics: 'EL', Monitors: 'MO', Appliances: 'AP',
+  Laptops: 'CO', Phones: 'PH', Audio: 'AU', Tablets: 'TB',
 };
 
 function generateCustomCode(sku: string, category: string): string {
@@ -49,6 +47,7 @@ function generateCustomCode(sku: string, category: string): string {
 }
 
 export default function CreateProductPage() {
+  const router = useRouter();
   const [title, setTitle] = useState('');
   const [shortName, setShortName] = useState('');
   const [sku, setSku] = useState('');
@@ -60,13 +59,47 @@ export default function CreateProductPage() {
   const [status, setStatus] = useState('present');
   const [customTag, setCustomTag] = useState('default');
   const [customCode, setCustomCode] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     setCustomCode(generateCustomCode(sku, category));
   }, [sku, category]);
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim() || !sku.trim() || !brand.trim()) {
+      setError('Title, SKU, and Brand are required.');
+      return;
+    }
+    const token = getToken();
+    if (!token) { router.push('/login'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      await apiCreateProduct(token, {
+        title,
+        shortName,
+        sku,
+        brand,
+        vendor,
+        model,
+        color,
+        category,
+        status: status as 'present' | 'inactive' | 'discontinued',
+        customTag,
+        customCode,
+      });
+      router.push('/products');
+    } catch (err: any) {
+      setError(err.message ?? 'Failed to create product. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <div className="flex flex-col gap-5">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       {/* Header */}
       <div>
         <p className="text-[12px] text-muted-foreground mb-1">
@@ -79,6 +112,12 @@ export default function CreateProductPage() {
         <h1 className="text-[20px] font-semibold text-foreground">Add Product</h1>
         <p className="text-[13px] text-muted-foreground mt-0.5">Create a new product in the catalogue</p>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Main form */}
@@ -159,6 +198,7 @@ export default function CreateProductPage() {
                   <input type="file" accept="image/*" className="sr-only" aria-label="Upload product image" />
                 </label>
               </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">Upload an image after saving the product.</p>
             </CardContent>
           </Card>
         </div>
@@ -183,7 +223,6 @@ export default function CreateProductPage() {
             </CardContent>
           </Card>
 
-          {/* Auto-generated custom code preview */}
           <Card>
             <CardHeader><CardTitle>Product Code</CardTitle></CardHeader>
             <CardContent>
@@ -203,14 +242,16 @@ export default function CreateProductPage() {
           <Card>
             <CardHeader><CardTitle>Actions</CardTitle></CardHeader>
             <CardContent className="flex flex-col gap-2">
-              <Button className="w-full">Save Product</Button>
+              <Button type="submit" className="w-full" disabled={saving}>
+                {saving ? 'Saving…' : 'Save Product'}
+              </Button>
               <Link href="/products">
-                <Button variant="outline" className="w-full">Cancel</Button>
+                <Button type="button" variant="outline" className="w-full">Cancel</Button>
               </Link>
             </CardContent>
           </Card>
         </div>
       </div>
-    </div>
+    </form>
   );
 }

@@ -5,7 +5,7 @@ import { Sidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
 import {
   HomeIcon, BoxIcon, ClipboardIcon, ShoppingCartIcon, LayersIcon,
-  UsersIcon, MapPinIcon, BuildingIcon, ChartBarIcon, CogIcon,
+  UsersIcon, MapPinIcon, BuildingIcon, ChartBarIcon, CogIcon, TruckIcon,
 } from '../../components/layout/icons';
 import { getAuth, clearAuth, getUserInitials } from '../../lib/auth';
 
@@ -27,6 +27,7 @@ const navGroups = [
     items: [
       { label: 'Store Orders', href: '/orders/store-orders', icon: <ClipboardIcon />, badge: 4 },
       { label: 'Bulk Orders', href: '/orders/bulk-orders', icon: <ShoppingCartIcon /> },
+      { label: 'Transfers', href: '/transfers', icon: <TruckIcon /> },
     ],
   },
   {

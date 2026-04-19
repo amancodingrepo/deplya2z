@@ -1,10 +1,75 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Avatar } from '../../../components/ui/avatar';
+import { getAuth, getToken, getUserInitials } from '../../../lib/auth';
+import { apiUpdateUser, ApiError } from '../../../lib/api';
 
 export default function SettingsPage() {
+  const auth = getAuth();
+  const user = auth?.user;
+
+  const [name, setName] = useState(user?.name ?? '');
+  const [email] = useState(user?.email ?? '');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState('');
+  const [profileError, setProfileError] = useState('');
+
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwMsg, setPwMsg] = useState('');
+  const [pwError, setPwError] = useState('');
+
+  useEffect(() => {
+    if (user?.name) setName(user.name);
+  }, [user?.name]);
+
+  async function handleProfileSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setProfileError('Name is required.'); return; }
+    const token = getToken();
+    if (!token || !user?.id) return;
+    setProfileSaving(true);
+    setProfileError('');
+    setProfileMsg('');
+    try {
+      await apiUpdateUser(token, user.id, { name });
+      setProfileMsg('Profile updated successfully.');
+      setTimeout(() => setProfileMsg(''), 3000);
+    } catch (err: any) {
+      setProfileError(err.message ?? 'Failed to update profile.');
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function handlePasswordChange(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newPw || newPw.length < 8) { setPwError('New password must be at least 8 characters.'); return; }
+    if (newPw !== confirmPw) { setPwError('Passwords do not match.'); return; }
+    const token = getToken();
+    if (!token || !user?.id) return;
+    setPwSaving(true);
+    setPwError('');
+    setPwMsg('');
+    try {
+      await apiUpdateUser(token, user.id, { password: newPw } as any);
+      setPwMsg('Password updated successfully.');
+      setCurrentPw(''); setNewPw(''); setConfirmPw('');
+      setTimeout(() => setPwMsg(''), 3000);
+    } catch (err: any) {
+      setPwError(err.message ?? 'Failed to update password.');
+    } finally {
+      setPwSaving(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -19,33 +84,47 @@ export default function SettingsPage() {
           {/* Profile */}
           <Card>
             <CardHeader><CardTitle>Profile</CardTitle></CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <div className="flex items-center gap-4">
-                <Avatar name="Alex Johnson" size="lg" />
-                <Button variant="outline" size="sm">Change Avatar</Button>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Full Name" defaultValue="Alex Johnson" />
-                <Input label="Email" type="email" defaultValue="admin@a2z.com" />
-              </div>
-              <Input label="Phone" type="tel" placeholder="+91 98765 43210" />
-              <div className="flex justify-end">
-                <Button size="sm">Save Profile</Button>
-              </div>
-            </CardContent>
+            <form onSubmit={handleProfileSave}>
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex items-center gap-4">
+                  <Avatar name={name || 'Admin'} size="lg" />
+                  <div>
+                    <p className="text-[13px] font-semibold text-foreground">{name || 'Admin'}</p>
+                    <p className="text-[12px] text-muted-foreground">Super Admin</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Full Name" value={name} onChange={e => setName(e.target.value)} required />
+                  <Input label="Email" type="email" value={email} disabled hint="Contact support to change email" />
+                </div>
+                {profileError && <p className="text-[12px] text-destructive">{profileError}</p>}
+                {profileMsg && <p className="text-[12px] text-success">{profileMsg}</p>}
+                <div className="flex justify-end">
+                  <Button type="submit" size="sm" disabled={profileSaving}>
+                    {profileSaving ? 'Saving…' : 'Save Profile'}
+                  </Button>
+                </div>
+              </CardContent>
+            </form>
           </Card>
 
           {/* Password */}
           <Card>
             <CardHeader><CardTitle>Change Password</CardTitle></CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <Input label="Current Password" type="password" placeholder="••••••••" />
-              <Input label="New Password" type="password" placeholder="Min. 8 characters" />
-              <Input label="Confirm New Password" type="password" placeholder="Re-enter new password" />
-              <div className="flex justify-end">
-                <Button size="sm">Update Password</Button>
-              </div>
-            </CardContent>
+            <form onSubmit={handlePasswordChange}>
+              <CardContent className="flex flex-col gap-4">
+                <Input label="Current Password" type="password" value={currentPw} onChange={e => setCurrentPw(e.target.value)} placeholder="••••••••" />
+                <Input label="New Password" type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="Min. 8 characters" />
+                <Input label="Confirm New Password" type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} placeholder="Re-enter new password" />
+                {pwError && <p className="text-[12px] text-destructive">{pwError}</p>}
+                {pwMsg && <p className="text-[12px] text-success">{pwMsg}</p>}
+                <div className="flex justify-end">
+                  <Button type="submit" size="sm" disabled={pwSaving}>
+                    {pwSaving ? 'Updating…' : 'Update Password'}
+                  </Button>
+                </div>
+              </CardContent>
+            </form>
           </Card>
 
           {/* System */}
@@ -67,7 +146,7 @@ export default function SettingsPage() {
                 <Input type="number" defaultValue={48} className="w-20 text-center" />
               </div>
               <div className="flex justify-end">
-                <Button size="sm">Save Settings</Button>
+                <Button size="sm" type="button">Save Settings</Button>
               </div>
             </CardContent>
           </Card>
@@ -75,13 +154,20 @@ export default function SettingsPage() {
 
         <div>
           <Card>
-            <CardHeader><CardTitle>Danger Zone</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Account Info</CardTitle></CardHeader>
             <CardContent className="flex flex-col gap-3">
-              <p className="text-xs text-muted-foreground">These actions are irreversible. Proceed with caution.</p>
-              <Button variant="destructive" className="w-full" size="sm">Reset All Inventory</Button>
-              <Button variant="outline" className="w-full border-destructive text-destructive hover:bg-destructive-subtle" size="sm">
-                Clear Audit Logs
-              </Button>
+              <div className="rounded-md bg-muted/50 p-3">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Role</p>
+                <p className="text-[13px] font-medium mt-0.5">Super Admin</p>
+              </div>
+              <div className="rounded-md bg-muted/50 p-3">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Email</p>
+                <p className="text-[13px] font-medium mt-0.5 break-all">{email}</p>
+              </div>
+              <div className="rounded-md bg-muted/50 p-3">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">User ID</p>
+                <p className="text-[11px] font-mono text-muted-foreground mt-0.5 break-all">{user?.id ?? '—'}</p>
+              </div>
             </CardContent>
           </Card>
         </div>
