@@ -48,6 +48,7 @@ authRouter.post('/login', loginRateLimiter, (req, res) => {
       return res.json(result);
     })
     .catch((error) => {
+      console.error('[login error]', error);
       if (error instanceof AppError) {
         return res.status(error.statusCode).json({
           code: error.code,

@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true }); // always prefer .env over any shell-level env vars
 
 import { createApp } from './app.js';
 import { env } from './config/env.js';

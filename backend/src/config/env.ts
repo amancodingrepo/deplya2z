@@ -1,4 +1,9 @@
+import { configDotenv } from 'dotenv';
+// Must run BEFORE any process.env reads below — overrides stale shell/parent-process env vars
+configDotenv({ override: true });
+
 export const env = {
+
   port: Number(process.env.PORT ?? 8080),
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
   nodeEnv: process.env.NODE_ENV ?? 'development',
