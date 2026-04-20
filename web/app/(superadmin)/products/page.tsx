@@ -50,7 +50,7 @@ export default function ProductsPage() {
   const [category, setCategory] = useState('All');
   const [statusFilter, setStatusFilter] = useState('all');
   const [view, setView] = useState<'grid' | 'table'>('grid');
-  const [searchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [apiProductList, setApiProductList] = useState<Product[]>([]);
   const [apiLoading, setApiLoading] = useState(true);
@@ -77,6 +77,7 @@ export default function ProductsPage() {
   const sourceProducts = apiProductList.length > 0 ? apiProductList : products;
 
   const filtered = sourceProducts.filter((p) => {
+    if (searchQuery && !p.title.toLowerCase().includes(searchQuery.toLowerCase()) && !p.sku.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     if (category !== 'All' && p.category !== category) return false;
     if (statusFilter !== 'all' && p.status !== statusFilter) return false;
     return true;
@@ -98,6 +99,18 @@ export default function ProductsPage() {
         <Link href="/products/create">
           <Button size="sm"><PlusIcon /> Add Product</Button>
         </Link>
+      </div>
+
+      {/* Search */}
+      <div className="relative max-w-sm">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search products…"
+          className="h-9 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
+        />
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
       </div>
 
       {/* Filters + view toggle */}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
@@ -8,25 +8,9 @@ import { Button } from '../../../components/ui/button';
 import { Dialog } from '../../../components/ui/dialog';
 import { Input } from '../../../components/ui/input';
 import { Select } from '../../../components/ui/select';
-
-/* ─── Mock data ──────────────────────────────────── */
-const products = [
-  { id: '1', sku: 'SKU-TV-001', name: 'Samsung 55" TV', brand: 'Samsung', wh01: { a: 2, r: 5, t: 7 }, wh02: { a: 8, r: 2, t: 10 }, st01: { a: 3, r: 1, t: 4 }, st02: { a: 5, r: 0, t: 5 } },
-  { id: '2', sku: 'SKU-MON-001', name: 'LG Monitor 23"', brand: 'LG', wh01: { a: 15, r: 3, t: 18 }, wh02: { a: 0, r: 0, t: 0 }, st01: { a: 1, r: 0, t: 1 }, st02: { a: 4, r: 1, t: 5 } },
-  { id: '3', sku: 'SKU-FRG-003', name: 'LG Fridge 23cu', brand: 'LG', wh01: { a: 1, r: 2, t: 3 }, wh02: { a: 4, r: 1, t: 5 }, st01: { a: 2, r: 0, t: 2 }, st02: { a: 1, r: 0, t: 1 } },
-  { id: '4', sku: 'SKU-LAP-007', name: 'Dell XPS 15', brand: 'Dell', wh01: { a: 3, r: 0, t: 3 }, wh02: { a: 6, r: 2, t: 8 }, st01: { a: 0, r: 0, t: 0 }, st02: { a: 2, r: 0, t: 2 } },
-  { id: '5', sku: 'SKU-PHN-012', name: 'iPhone 15 Pro', brand: 'Apple', wh01: { a: 22, r: 8, t: 30 }, wh02: { a: 0, r: 0, t: 0 }, st01: { a: 6, r: 2, t: 8 }, st02: { a: 4, r: 1, t: 5 } },
-  { id: '6', sku: 'SKU-AUD-004', name: 'Sony Headphones', brand: 'Sony', wh01: { a: 18, r: 4, t: 22 }, wh02: { a: 5, r: 0, t: 5 }, st01: { a: 2, r: 0, t: 2 }, st02: { a: 3, r: 1, t: 4 } },
-  { id: '7', sku: 'SKU-TAB-002', name: 'iPad Air 5th Gen', brand: 'Apple', wh01: { a: 7, r: 1, t: 8 }, wh02: { a: 0, r: 0, t: 0 }, st01: { a: 1, r: 0, t: 1 }, st02: { a: 0, r: 0, t: 0 } },
-  { id: '8', sku: 'SKU-PHN-015', name: 'Galaxy S24 Ultra', brand: 'Samsung', wh01: { a: 12, r: 3, t: 15 }, wh02: { a: 8, r: 2, t: 10 }, st01: { a: 3, r: 1, t: 4 }, st02: { a: 2, r: 0, t: 2 } },
-];
-
-const locations = [
-  { id: 'wh01', name: 'Main Warehouse (WH01)', type: 'Warehouse', products: 45, stock: 1234, reserved: 87, lowStock: 3 },
-  { id: 'wh02', name: 'North Warehouse (WH02)', type: 'Warehouse', products: 28, stock: 567, reserved: 12, lowStock: 1 },
-  { id: 'st01', name: 'Store 01 (ST01)', type: 'Store', products: 32, stock: 234, reserved: 15, lowStock: 2 },
-  { id: 'st02', name: 'Store 02 (ST02)', type: 'Store', products: 28, stock: 189, reserved: 8, lowStock: 0 },
-];
+import { getToken } from '../../../lib/auth';
+import { apiInventory, apiInventoryAdjust, apiLocations } from '../../../lib/api';
+import type { InventoryRow, Location } from '../../../lib/api';
 
 const reasonOptions = [
   { value: 'count', label: 'Physical count correction' },
@@ -35,66 +19,151 @@ const reasonOptions = [
   { value: 'other', label: 'Other' },
 ];
 
-type StockCell = { a: number; r: number; t: number };
+type GroupedProduct = {
+  product_id: string;
+  sku: string;
+  product_title: string;
+  rows: InventoryRow[];
+  totalAvailable: number;
+  totalReserved: number;
+  totalQuantity: number;
+};
 
-function CellValue({ cell }: { cell: StockCell }) {
-  const color = cell.a === 0 ? 'text-destructive' : cell.a <= 3 ? 'text-warning' : 'text-success';
-  if (cell.t === 0) return <span className="text-muted-foreground text-[12px]">—</span>;
-  return (
-    <span className="font-mono text-[12px]">
-      <span className={`font-bold ${color}`}>{cell.a}</span>
-      <span className="text-muted-foreground">/{cell.r}/{cell.t}</span>
-    </span>
-  );
+function stockVariant(available: number): 'success' | 'warning' | 'destructive' {
+  if (available === 0) return 'destructive';
+  if (available <= 5) return 'warning';
+  return 'success';
 }
 
-function stockStatus(p: typeof products[0]) {
-  const total = p.wh01.a + p.wh02.a + p.st01.a + p.st02.a;
-  if (total === 0) return { label: 'Out of Stock', variant: 'destructive' as const };
-  if (total <= 5) return { label: 'Low Stock', variant: 'warning' as const };
-  return { label: 'In Stock', variant: 'success' as const };
+function stockLabel(available: number) {
+  if (available === 0) return 'Out of Stock';
+  if (available <= 5) return 'Low Stock';
+  return 'In Stock';
 }
 
-/* ─── Adjust Stock Modal Content ─────────────────── */
-function AdjustModalContent({ name, currentStock }: { name: string; currentStock: number }) {
-  const [qty, setQty] = useState('');
-  const [reason, setReason] = useState('');
-  const [notes, setNotes] = useState('');
-  return (
-    <div className="flex flex-col gap-4 pt-2">
-      <div className="rounded-lg border border-border bg-surface-raised px-4 py-3">
-        <p className="text-[12px] text-muted-foreground">Current stock</p>
-        <p className="text-[20px] font-bold text-foreground tabular-nums">{currentStock}</p>
-        <p className="text-[12px] font-medium text-foreground">{name}</p>
-      </div>
-      <Input label="New Quantity" type="number" min="0" value={qty} onChange={e => setQty(e.target.value)} placeholder="Enter new total quantity" />
-      <Select label="Reason" options={reasonOptions} value={reason} onChange={e => setReason(e.target.value)} placeholder="Select reason" />
-      {reason === 'other' && (
-        <div>
-          <label className="block text-[13px] font-medium text-foreground mb-1.5">Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Describe the reason..."
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none" />
-        </div>
-      )}
-    </div>
-  );
+interface AdjustState {
+  product_id: string;
+  product_title: string;
+  location_id: string;
+  location_code: string;
+  current: number;
 }
 
-/* ─── Page ───────────────────────────────────────── */
 export default function InventoryPage() {
   const [view, setView] = useState<'product' | 'location'>('product');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [adjustingProduct, setAdjustingProduct] = useState<typeof products[0] | null>(null);
+  const [rows, setRows] = useState<InventoryRow[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adjusting, setAdjusting] = useState<AdjustState | null>(null);
 
-  const filtered = products.filter(p => {
-    if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
-    const s = stockStatus(p);
-    if (statusFilter === 'in_stock' && s.variant !== 'success') return false;
-    if (statusFilter === 'low_stock' && s.variant !== 'warning') return false;
-    if (statusFilter === 'out_of_stock' && s.variant !== 'destructive') return false;
+  // Adjust modal state
+  const [adjQty, setAdjQty] = useState('');
+  const [adjReason, setAdjReason] = useState('');
+  const [adjNotes, setAdjNotes] = useState('');
+  const [adjSaving, setAdjSaving] = useState(false);
+  const [adjError, setAdjError] = useState('');
+  const [adjLocationId, setAdjLocationId] = useState('');
+
+  const load = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+    setLoading(true);
+    try {
+      const [invRes, locsRes] = await Promise.all([
+        apiInventory(token, { limit: 500 }),
+        apiLocations(token),
+      ]);
+      setRows(invRes.data);
+      setLocations(locsRes.data);
+    } catch { /* ignore */ } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Group by product
+  const grouped: GroupedProduct[] = [];
+  const seen = new Map<string, GroupedProduct>();
+  for (const row of rows) {
+    if (!seen.has(row.product_id)) {
+      const g: GroupedProduct = { product_id: row.product_id, sku: row.sku, product_title: row.product_title, rows: [], totalAvailable: 0, totalReserved: 0, totalQuantity: 0 };
+      seen.set(row.product_id, g);
+      grouped.push(g);
+    }
+    const g = seen.get(row.product_id)!;
+    g.rows.push(row);
+    g.totalAvailable += row.available;
+    g.totalReserved += row.reserved;
+    g.totalQuantity += row.quantity;
+  }
+
+  const filteredGrouped = grouped.filter(p => {
+    if (search && !p.product_title.toLowerCase().includes(search.toLowerCase()) && !p.sku.toLowerCase().includes(search.toLowerCase())) return false;
+    if (statusFilter === 'in_stock' && stockVariant(p.totalAvailable) !== 'success') return false;
+    if (statusFilter === 'low_stock' && stockVariant(p.totalAvailable) !== 'warning') return false;
+    if (statusFilter === 'out_of_stock' && stockVariant(p.totalAvailable) !== 'destructive') return false;
     return true;
   });
+
+  // Group by location for location view
+  const byLocation = locations.map(loc => {
+    const locRows = rows.filter(r => r.location_id === loc.id);
+    return {
+      ...loc,
+      products: locRows.length,
+      stock: locRows.reduce((s, r) => s + r.quantity, 0),
+      reserved: locRows.reduce((s, r) => s + r.reserved, 0),
+      lowStock: locRows.filter(r => r.available <= r.threshold && r.available > 0).length,
+    };
+  });
+
+  function openAdjust(p: GroupedProduct) {
+    const firstRow = p.rows[0];
+    setAdjusting({
+      product_id: p.product_id,
+      product_title: p.product_title,
+      location_id: firstRow.location_id,
+      location_code: firstRow.location_code,
+      current: firstRow.available,
+    });
+    setAdjLocationId(firstRow.location_id);
+    setAdjQty('');
+    setAdjReason('');
+    setAdjNotes('');
+    setAdjError('');
+  }
+
+  async function handleAdjustConfirm() {
+    if (!adjusting) return;
+    const qty = parseInt(adjQty);
+    if (!adjQty || isNaN(qty) || qty < 0) { setAdjError('Enter a valid quantity.'); return; }
+    if (!adjReason) { setAdjError('Select a reason.'); return; }
+    if (!adjLocationId) { setAdjError('Select a location.'); return; }
+    const token = getToken();
+    if (!token) return;
+    setAdjSaving(true); setAdjError('');
+    try {
+      await apiInventoryAdjust(token, {
+        product_id: adjusting.product_id,
+        location_id: adjLocationId,
+        quantity: qty,
+        note: adjReason === 'other' ? adjNotes : adjReason,
+      });
+      setAdjusting(null);
+      load();
+    } catch (e: any) {
+      setAdjError(e.message ?? 'Adjustment failed.');
+    } finally {
+      setAdjSaving(false);
+    }
+  }
+
+  const adjProductRows = adjusting ? (seen.get(adjusting.product_id)?.rows ?? []) : [];
+  const adjLocationOptions = adjProductRows.map(r => ({ value: r.location_id, label: `${r.location_code} — ${r.location_name} (avail: ${r.available})` }));
+  const adjCurrentRow = adjProductRows.find(r => r.location_id === adjLocationId);
 
   return (
     <div className="flex flex-col gap-5">
@@ -109,9 +178,12 @@ export default function InventoryPage() {
           <h1 className="text-[20px] font-semibold text-foreground">Inventory</h1>
           <p className="text-[13px] text-muted-foreground mt-0.5">Stock levels across all locations</p>
         </div>
-        <Link href="/inventory/movements">
-          <Button variant="outline" size="sm">View Movements</Button>
-        </Link>
+        <div className="flex gap-2">
+          <button onClick={load} className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-muted-foreground hover:bg-surface-raised transition-colors">↻ Refresh</button>
+          <Link href="/inventory/movements">
+            <Button variant="outline" size="sm">View Movements</Button>
+          </Link>
+        </div>
       </div>
 
       {/* View toggle */}
@@ -149,51 +221,56 @@ export default function InventoryPage() {
                   <tr className="border-b border-border bg-surface-raised">
                     <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Product</th>
                     <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">SKU</th>
-                    <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">WH01</th>
-                    <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">WH02</th>
-                    <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">ST01</th>
-                    <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">ST02</th>
+                    <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Available</th>
+                    <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Reserved</th>
+                    <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Total</th>
+                    <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Locations</th>
                     <th className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
                     <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(p => {
-                    const s = stockStatus(p);
-                    return (
-                      <tr key={p.id} className="border-b border-border last:border-0 hover:bg-surface-raised transition-colors">
-                        <td className="px-4 py-3">
-                          <p className="font-semibold text-foreground">{p.name}</p>
-                          <p className="text-[11px] text-muted-foreground">{p.brand}</p>
-                        </td>
-                        <td className="px-4 py-3 font-mono text-[12px] text-muted-foreground whitespace-nowrap">{p.sku}</td>
-                        <td className="px-3 py-3 text-center"><CellValue cell={p.wh01} /></td>
-                        <td className="px-3 py-3 text-center"><CellValue cell={p.wh02} /></td>
-                        <td className="px-3 py-3 text-center"><CellValue cell={p.st01} /></td>
-                        <td className="px-3 py-3 text-center"><CellValue cell={p.st02} /></td>
-                        <td className="px-3 py-3 text-center">
-                          <Badge variant={s.variant}>{s.label}</Badge>
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]"
-                            onClick={() => setAdjustingProduct(p)}>Adjust</Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {filtered.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-[13px] text-muted-foreground">No products match the filter</td>
+                  {loading && (
+                    <tr><td colSpan={8} className="px-4 py-12 text-center text-[13px] text-muted-foreground">
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" /> Loading…
+                      </div>
+                    </td></tr>
+                  )}
+                  {!loading && filteredGrouped.map(p => (
+                    <tr key={p.product_id} className="border-b border-border last:border-0 hover:bg-surface-raised transition-colors">
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-foreground">{p.product_title}</p>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[12px] text-muted-foreground whitespace-nowrap">{p.sku}</td>
+                      <td className="px-3 py-3 text-center font-mono text-[12px]">
+                        <span className={`font-bold ${stockVariant(p.totalAvailable) === 'destructive' ? 'text-destructive' : stockVariant(p.totalAvailable) === 'warning' ? 'text-warning' : 'text-success'}`}>
+                          {p.totalAvailable}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-center font-mono text-[12px] text-muted-foreground">{p.totalReserved}</td>
+                      <td className="px-3 py-3 text-center font-mono text-[12px] text-muted-foreground">{p.totalQuantity}</td>
+                      <td className="px-3 py-3 text-center text-[12px] text-muted-foreground">{p.rows.length}</td>
+                      <td className="px-3 py-3 text-center">
+                        <Badge variant={stockVariant(p.totalAvailable)}>{stockLabel(p.totalAvailable)}</Badge>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]"
+                          onClick={() => openAdjust(p)}>Adjust</Button>
+                      </td>
                     </tr>
+                  ))}
+                  {!loading && filteredGrouped.length === 0 && (
+                    <tr><td colSpan={8} className="px-4 py-10 text-center text-[13px] text-muted-foreground">No products match the filter</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
-              <span className="text-[11px] font-mono">avail / reserved / total</span>
-              <span className="mx-2">·</span>
-              <span className="text-success font-semibold">green</span> = healthy · <span className="text-warning font-semibold">amber</span> = low · <span className="text-destructive font-semibold">red</span> = zero
-            </div>
+            {!loading && (
+              <div className="border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
+                Showing {filteredGrouped.length} of {grouped.length} products
+              </div>
+            )}
           </div>
         </>
       )}
@@ -201,15 +278,16 @@ export default function InventoryPage() {
       {/* By Location view */}
       {view === 'location' && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {locations.map(loc => (
+          {loading && <p className="text-[13px] text-muted-foreground">Loading…</p>}
+          {!loading && byLocation.map(loc => (
             <Card key={loc.id}>
               <CardHeader>
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <CardTitle>{loc.name}</CardTitle>
-                    <p className="text-[12px] text-muted-foreground mt-0.5">{loc.type}</p>
+                    <p className="text-[12px] text-muted-foreground mt-0.5">{loc.code}</p>
                   </div>
-                  <Badge variant={loc.type === 'Warehouse' ? 'primary' : 'default'}>{loc.type === 'Warehouse' ? 'WH' : 'ST'}</Badge>
+                  <Badge variant={loc.type === 'warehouse' ? 'primary' : 'default'}>{loc.type === 'warehouse' ? 'WH' : 'ST'}</Badge>
                 </div>
               </CardHeader>
               <CardContent>
@@ -234,16 +312,50 @@ export default function InventoryPage() {
       )}
 
       {/* Stock adjustment modal */}
-      {adjustingProduct && (
+      {adjusting && (
         <Dialog
           open
-          onClose={() => setAdjustingProduct(null)}
-          title={`Adjust Stock — ${adjustingProduct.name}`}
-          confirmLabel="Save Adjustment"
+          onClose={() => setAdjusting(null)}
+          title={`Adjust Stock — ${adjusting.product_title}`}
+          confirmLabel={adjSaving ? 'Saving…' : 'Save Adjustment'}
           confirmVariant="primary"
-          onConfirm={() => setAdjustingProduct(null)}
+          onConfirm={handleAdjustConfirm}
         >
-          <AdjustModalContent name={adjustingProduct.name} currentStock={adjustingProduct.wh01.t} />
+          <div className="flex flex-col gap-4 pt-2">
+            <Select
+              label="Location"
+              options={adjLocationOptions}
+              value={adjLocationId}
+              onChange={e => {
+                setAdjLocationId(e.target.value);
+                setAdjQty('');
+              }}
+            />
+            {adjCurrentRow && (
+              <div className="rounded-lg border border-border bg-surface-raised px-4 py-3">
+                <p className="text-[12px] text-muted-foreground">Current available at {adjCurrentRow.location_code}</p>
+                <p className="text-[20px] font-bold text-foreground tabular-nums">{adjCurrentRow.available}</p>
+              </div>
+            )}
+            <Input
+              label="New Quantity (total available)"
+              type="number"
+              min="0"
+              value={adjQty}
+              onChange={e => setAdjQty(e.target.value)}
+              placeholder="Enter new total quantity"
+            />
+            <Select label="Reason" options={reasonOptions} value={adjReason} onChange={e => setAdjReason(e.target.value)} placeholder="Select reason" />
+            {adjReason === 'other' && (
+              <div>
+                <label className="block text-[13px] font-medium text-foreground mb-1.5">Notes</label>
+                <textarea value={adjNotes} onChange={e => setAdjNotes(e.target.value)} rows={3}
+                  placeholder="Describe the reason..."
+                  className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none" />
+              </div>
+            )}
+            {adjError && <p className="text-[12px] text-destructive">{adjError}</p>}
+          </div>
         </Dialog>
       )}
     </div>
