@@ -87,14 +87,14 @@ export default function ProductEditPage() {
         const p = res.data;
         setProduct(p);
         setTitle(p.title ?? '');
-        setShortName(p.shortName ?? '');
+        setShortName((p as any).shortName ?? (p as any).short_name ?? '');
         setBrand(p.brand ?? '');
-        setVendor(p.vendor ?? '');
+        setVendor((p as any).vendor ?? '');
         setModel(p.model ?? '');
         setColor(p.color ?? '');
         setCategory(p.category ?? '');
         setStatus(p.status ?? 'present');
-        setCustomTag(p.customTag ?? 'default');
+        setCustomTag((p as any).customTag ?? (p as any).custom_style ?? 'default');
       })
       .catch(err => setLoadError(err.message ?? 'Failed to load product'))
       .finally(() => setLoading(false));
@@ -109,11 +109,11 @@ export default function ProductEditPage() {
     setSaveMsg('');
     try {
       const updated = await apiUpdateProduct(token, id, {
-        title, shortName, brand, vendor, model, color, category,
+        title, short_name: shortName, brand, model, color, category,
         status: status as Product['status'],
-        customTag,
-      });
-      setProduct(updated.data);
+        custom_style: customTag,
+      } as any);
+      setProduct({ ...updated.data, shortName } as Product);
       setSaveMsg('Changes saved!');
       setTimeout(() => setSaveMsg(''), 3000);
     } catch (err: any) {
@@ -219,7 +219,7 @@ export default function ProductEditPage() {
                     if (!token) return;
                     try {
                       const res = await apiUploadProductImage(token, id, file);
-                      setProduct(p => p ? { ...p, image: res.data.url } : p);
+                      setProduct(p => p ? { ...p, image: res.data.url, image_url: res.data.url } as Product : p);
                     } catch { /* ignore upload error */ }
                   }} />
                 </label>

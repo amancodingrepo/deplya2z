@@ -20,12 +20,13 @@ export async function createClientStore(input: {
   contact_phone?: string;
   address?: string;
   city?: string;
+  gst_number?: string;
   status?: string;
 }) {
   const result = await pool.query(
     `INSERT INTO client_stores
-       (name, code, contact_name, contact_email, contact_phone, address, city, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (name, code, contact_name, contact_email, contact_phone, address, city, gst_number, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
     [
       input.name,
@@ -35,6 +36,7 @@ export async function createClientStore(input: {
       input.contact_phone ?? null,
       input.address ?? null,
       input.city ?? null,
+      input.gst_number ?? null,
       input.status ?? 'active',
     ],
   );
@@ -51,6 +53,7 @@ export async function updateClientStore(
     contact_phone?: string;
     address?: string;
     city?: string;
+    gst_number?: string;
     status?: string;
   },
 ) {

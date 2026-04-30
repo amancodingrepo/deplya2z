@@ -11,7 +11,8 @@ import {
   BoxIcon, ClipboardIcon, TruckIcon, ExclamationIcon,
 } from '../../../components/layout/icons';
 import { getToken } from '../../../lib/auth';
-import { apiDashboard, apiApproveOrder, apiRejectOrder } from '../../../lib/api';
+import { apiDashboard, apiApproveOrder, apiRejectOrder, apiOrders, apiInventoryLowStock, apiAuditLog } from '../../../lib/api';
+import type { StoreOrder } from '../../../lib/api';
 
 /* ─── Mock data ─────────────────────────────────── */
 const pendingApprovals = [
@@ -76,96 +77,83 @@ export default function SuperadminDashboard() {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   const [dashData, setDashData] = useState<Record<string, unknown> | null>(null);
+  const [pendingOrders, setPendingOrders] = useState<StoreOrder[]>([]);
+  const [lowStockLive, setLowStockLive] = useState<Array<{ sku: string; product_title: string; location_code: string; available: number; threshold: number }>>([]);
+  const [activity, setActivity] = useState<Array<{ id: string; actor: string; action: string; entity: string; time: string; role?: string; type?: string }>>([]);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const token = getToken();
     if (!token) return;
     let cancelled = false;
-    apiDashboard(token)
-      .then(r => { if (!cancelled) setDashData(r.data); })
-      .catch(() => {/* keep mock data on error */});
+    Promise.allSettled([
+      apiDashboard(token),
+      apiOrders(token, { status: 'draft', limit: 20 }),
+      apiInventoryLowStock(token),
+      apiAuditLog(token, { limit: 20 }),
+    ]).then((results) => {
+      if (cancelled) return;
+      if (results[0].status === 'fulfilled') setDashData(results[0].value.data);
+      if (results[1].status === 'fulfilled') setPendingOrders(results[1].value.data);
+      if (results[2].status === 'fulfilled') {
+        setLowStockLive(
+          results[2].value.data.map((x) => ({
+            sku: x.sku,
+            product_title: x.product_title,
+            location_code: x.location_code,
+            available: x.available,
+            threshold: x.threshold,
+          })),
+        );
+      }
+      if (results[3].status === 'fulfilled') {
+        setActivity(
+          results[3].value.data.map((row: any, idx: number) => ({
+            id: row.id ?? String(idx),
+            actor: row.actor_name ?? row.actor ?? 'System',
+            action: row.action ?? 'updated',
+            entity: row.entity_type && row.entity_id ? `${row.entity_type}:${row.entity_id}` : (row.entity_type ?? '-'),
+            time: row.created_at ?? '',
+            role: row.actor_role ?? '',
+            type: row.entity_type ?? '',
+          })),
+        );
+      }
+    });
     return () => { cancelled = true; };
   }, [refreshKey]);
 
   const kpi = dashData?.kpi as Record<string, number> | undefined;
-  const pendingApprovalsCount = kpi?.pending_approvals ?? pendingApprovals.length;
-  const lowStockCount = kpi?.low_stock_items ?? lowStock.length;
+  const pendingSource = pendingOrders.length > 0 ? pendingOrders.map((o) => ({
+    id: o.id, store: o.store, warehouse: o.warehouse, items: o.items.map((i) => `${i.qty}x ${i.name}`).join(', '), units: o.items.reduce((s, i) => s + i.qty, 0), time: o.created, by: o.by,
+  })) : pendingApprovals;
+  const lowStockSource = lowStockLive.length > 0
+    ? lowStockLive.map((x) => ({ sku: x.sku, name: x.product_title, warehouse: x.location_code, available: x.available, threshold: x.threshold }))
+    : lowStock;
+  const activitySource = activity.length > 0 ? activity : recentActivity;
+  const pendingApprovalsCount = kpi?.pending_approvals ?? pendingSource.length;
+  const lowStockCount = kpi?.low_stock_items ?? lowStockSource.length;
   const dispatchedToday = kpi?.dispatched_today ?? 7;
   const activeStores = kpi?.active_stores ?? 5;
 
-  return (
-    <div className="flex flex-col gap-6">
-      {/* Greeting */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-[22px] font-bold text-foreground">{greeting}, Alex 👋</h1>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
-            {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </p>
-        </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1.5 text-[12px] font-semibold text-destructive">
-          <span className="size-1.5 rounded-full bg-destructive animate-pulse" />
-          {pendingApprovalsCount} items need attention
-        </span>
-      </div>
+   return (
+     <div className="flex flex-col gap-6">
+       {/* Greeting */}
+       <div className="flex items-start justify-between gap-4 flex-wrap">
+         <div>
+           <h1 className="text-[22px] font-bold text-foreground">{greeting}, Alex 👋</h1>
+           <p className="mt-0.5 text-[13px] text-muted-foreground">
+             {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+           </p>
+         </div>
+       </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KPICard label="Pending Approvals" value={String(pendingApprovalsCount)} sub="↑ 2 from yesterday" accent="bg-primary/10 text-primary" icon={<ClipboardIcon />} href="/orders/store-orders" />
-        <KPICard label="Low Stock Items" value={String(lowStockCount)} sub="1 item out of stock" accent="bg-destructive/10 text-destructive" icon={<ExclamationIcon />} href="/inventory" />
-        <KPICard label="Dispatched Today" value={String(dispatchedToday)} sub="↑ 3 from yesterday" accent="bg-success/10 text-success" icon={<TruckIcon />} />
-        <KPICard label="Active Stores" value={String(activeStores)} sub="All operational" accent="bg-muted text-muted-foreground" icon={<BoxIcon />} href="/locations" />
-      </div>
-
-      {/* Pending approvals table */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Awaiting Your Approval</CardTitle>
-            <Link href="/orders/store-orders" className="text-[12px] text-primary hover:underline">View all orders →</Link>
-          </div>
-        </CardHeader>
-        <CardContent className="px-0 pb-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-border">
-                  {['Order ID', 'Store', 'Items', 'Time', ''].map(h => (
-                    <th key={h} className={`px-5 pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === '' ? 'text-right' : 'text-left'} ${h === 'Items' ? 'hidden md:table-cell' : ''}`}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pendingApprovals.map((o, i) => (
-                  <tr key={o.id} className={`border-b border-border last:border-0 hover:bg-surface-raised transition-colors ${i < 2 ? 'bg-primary-subtle/40' : ''}`}>
-                    <td className="px-5 py-3">
-                      <p className="font-mono font-semibold text-foreground text-[12px]">{o.id}</p>
-                      <p className="text-[11px] text-muted-foreground">{o.by}</p>
-                    </td>
-                    <td className="px-5 py-3 text-muted-foreground">{o.store}</td>
-                    <td className="px-5 py-3 text-muted-foreground hidden md:table-cell max-w-[200px]">
-                      <p className="truncate">{o.items}</p>
-                      <p className="text-[11px]">{o.units} units</p>
-                    </td>
-                    <td className="px-5 py-3 text-muted-foreground whitespace-nowrap">{o.time}</td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button size="sm" className="h-7 px-3 text-[11px]" onClick={() => setApprovingId(o.id)}>
-                          Approve
-                        </Button>
-                        <Link href="/orders/store-orders">
-                          <Button size="sm" variant="outline" className="h-7 px-3 text-[11px]">View</Button>
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+       {/* KPI cards */}
+       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+         <KPICard label="Low Stock Items" value={String(lowStockCount)} sub="1 item out of stock" accent="bg-destructive/10 text-destructive" icon={<ExclamationIcon />} href="/inventory" />
+         <KPICard label="Dispatched Today" value={String(dispatchedToday)} sub="↑ 3 from yesterday" accent="bg-success/10 text-success" icon={<TruckIcon />} />
+         <KPICard label="Active Stores" value={String(activeStores)} sub="All operational" accent="bg-muted text-muted-foreground" icon={<BoxIcon />} href="/locations" />
+       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -198,7 +186,7 @@ export default function SuperadminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {lowStock.map((item) => (
+                {lowStockSource.map((item) => (
                   <tr key={item.sku} className="border-b border-border last:border-0 hover:bg-surface-raised">
                     <td className="px-5 py-3">
                       <p className="font-medium text-foreground">{item.name}</p>
@@ -222,9 +210,9 @@ export default function SuperadminDashboard() {
           <CardHeader><CardTitle>Recent Activity</CardTitle></CardHeader>
           <CardContent>
             <ol className="space-y-3">
-              {recentActivity.map((a) => (
+              {activitySource.map((a) => (
                 <li key={a.id} className="flex items-start gap-3">
-                  <ActivityDot type={a.type} />
+                  <ActivityDot type={a.type ?? ''} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] text-foreground leading-snug">
                       <span className="font-semibold">{a.actor}</span>

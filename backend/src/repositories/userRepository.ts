@@ -73,7 +73,7 @@ export async function listEmployeeUsers(params: ListUsersParams) {
   const values: string[] = [];
   const where: string[] = [];
 
-  if (params.actorRole === 'warehouse_manager' && params.actorLocationCode) {
+  if ((params.actorRole === 'warehouse_manager' || params.actorRole === 'store_manager') && params.actorLocationCode) {
     values.push(params.actorLocationCode);
     where.push(`(u.location_id::text = $${values.length} or l.location_code = $${values.length})`);
   }
@@ -95,16 +95,16 @@ export async function listEmployeeUsers(params: ListUsersParams) {
        u.email,
        u.name,
        u.role,
-      u.location_id,
+       u.location_id,
        u.status,
        u.created_at,
        u.updated_at,
        l.location_code,
        l.name as location_name
-     from users u
-     left join locations l on l.id::text = u.location_id::text
-     ${whereSql}
-     order by u.created_at desc`,
+      from users u
+      left join locations l on l.id::text = u.location_id::text
+      ${whereSql}
+      order by u.created_at desc`,
     values,
   );
   return result.rows.map(mapEmployeeUser);

@@ -34,6 +34,7 @@ const navGroups = [
     label: 'Management',
     items: [
       { label: 'Users', href: '/users', icon: <UsersIcon /> },
+      { label: 'Staff', href: '/staff', icon: <UsersIcon /> },
       { label: 'Locations', href: '/locations', icon: <MapPinIcon /> },
       { label: 'Clients', href: '/clients', icon: <BuildingIcon /> },
     ],

@@ -69,6 +69,14 @@ staffRouter.post(
         return res.status(400).json({ code: 'VALIDATION_ERROR', errors: body.error.issues });
       }
 
+      // Managers can only create staff for their own location
+      if (req.user!.role !== 'superadmin') {
+        const actorLocCode = req.user!.location_id;
+        if (!actorLocCode || body.data.location_code !== actorLocCode) {
+          return res.status(403).json({ code: 'FORBIDDEN', message: 'Managers can only create staff for their own location' });
+        }
+      }
+
       const locRow = await pool.query(
         `SELECT id FROM locations WHERE location_code = $1 LIMIT 1`,
         [body.data.location_code],
@@ -78,10 +86,25 @@ staffRouter.post(
         return res.status(404).json({ code: 'NOT_FOUND', message: 'Location not found' });
       }
 
+      // Generate employee code if not provided
+      let employeeCode = body.data.employee_code;
+      if (!employeeCode) {
+        const loc = locRow.rows[0];
+        const locTypeResult = await pool.query(`SELECT type FROM locations WHERE id = $1`, [loc.id]);
+        const locType = locTypeResult.rows[0]?.type as 'warehouse' | 'store';
+        const prefix = locType === 'warehouse' ? 'WH' : 'ST';
+        const seqResult = await pool.query(
+          `SELECT COUNT(*) as cnt FROM staff_members WHERE location_id = $1`,
+          [loc.id],
+        );
+        const seq = String(Number(seqResult.rows[0]?.cnt ?? 0) + 1).padStart(3, '0');
+        employeeCode = `EMP-${prefix}${body.data.location_code.slice(-2)}-${seq}`;
+      }
+
       const member = await createStaffMember({
         userId: body.data.user_id,
         locationId,
-        employeeCode: body.data.employee_code,
+        employeeCode,
         designation: body.data.designation,
         joiningDate: body.data.joining_date,
         workingDaysPerWeek: body.data.working_days_per_week,
@@ -180,6 +203,23 @@ staffRouter.get('/attendance', async (req, res, next) => {
     // manager: optional staff_id filter
     const staffIdParam = String(req.query.staff_id ?? '').trim() || null;
     if (staffIdParam) {
+      // Verify staff belongs to manager's location
+      const staffLocationRow = await pool.query(
+        `SELECT location_id FROM staff_members WHERE id = $1`,
+        [staffIdParam],
+      );
+      const staffLocation = staffLocationRow.rows[0];
+      if (!staffLocation) {
+        return res.status(404).json({ code: 'NOT_FOUND', message: 'Staff member not found' });
+      }
+      const locRow = await pool.query(
+        `SELECT id FROM locations WHERE location_code = $1 OR id::text = $1 LIMIT 1`,
+        [req.user!.location_id ?? ''],
+      );
+      const actorLocation = locRow.rows[0];
+      if (!actorLocation || staffLocation.location_id !== actorLocation.id) {
+        return res.status(403).json({ code: 'FORBIDDEN', message: 'Cannot view attendance for staff from another location' });
+      }
       return res.json(await listAttendanceByStaff(staffIdParam, dateFrom, dateTo));
     }
 
@@ -222,6 +262,23 @@ staffRouter.get('/attendance/summary', async (req, res, next) => {
       return res
         .status(400)
         .json({ code: 'BAD_REQUEST', message: 'staff_id required for managers' });
+    }
+    // Verify staff belongs to manager's location
+    const staffLocationRow = await pool.query(
+      `SELECT location_id FROM staff_members WHERE id = $1`,
+      [staffIdParam],
+    );
+    const staffLocation = staffLocationRow.rows[0];
+    if (!staffLocation) {
+      return res.status(404).json({ code: 'NOT_FOUND', message: 'Staff member not found' });
+    }
+    const locRow = await pool.query(
+      `SELECT id FROM locations WHERE location_code = $1 OR id::text = $1 LIMIT 1`,
+      [req.user!.location_id ?? ''],
+    );
+    const actorLocation = locRow.rows[0];
+    if (!actorLocation || staffLocation.location_id !== actorLocation.id) {
+      return res.status(403).json({ code: 'FORBIDDEN', message: 'Cannot view summary for staff from another location' });
     }
     return res.json(await getAttendanceSummary(staffIdParam, year, month));
   } catch (err) {

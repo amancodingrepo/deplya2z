@@ -15,6 +15,7 @@ export default function LocationsPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [tab, setTab] = useState<'all' | 'warehouse' | 'store'>('all');
 
   const load = useCallback(async () => {
     const token = getToken();
@@ -36,6 +37,7 @@ export default function LocationsPage() {
   const warehouses = locations.filter(l => l.type === 'warehouse').length;
   const stores = locations.filter(l => l.type === 'store').length;
   const active = locations.filter(l => l.status === 'active').length;
+  const visible = locations.filter((l) => tab === 'all' ? true : l.type === tab);
 
   return (
     <div className="flex flex-col gap-6">
@@ -72,6 +74,11 @@ export default function LocationsPage() {
       </div>
 
       <Card>
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+          <button onClick={() => setTab('all')} className={`h-7 rounded-md px-3 text-xs ${tab === 'all' ? 'bg-primary text-primary-foreground' : 'border border-border bg-surface'}`}>All</button>
+          <button onClick={() => setTab('warehouse')} className={`h-7 rounded-md px-3 text-xs ${tab === 'warehouse' ? 'bg-primary text-primary-foreground' : 'border border-border bg-surface'}`}>Warehouses</button>
+          <button onClick={() => setTab('store')} className={`h-7 rounded-md px-3 text-xs ${tab === 'store' ? 'bg-primary text-primary-foreground' : 'border border-border bg-surface'}`}>Stores</button>
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -91,10 +98,10 @@ export default function LocationsPage() {
                   Loading…
                 </div>
               </TableEmpty>
-            ) : locations.length === 0 ? (
+            ) : visible.length === 0 ? (
               <TableEmpty colSpan={6}>No locations found.</TableEmpty>
             ) : (
-              locations.map((l) => (
+              visible.map((l) => (
                 <TableRow key={l.id}>
                   <TableCell className="font-mono text-xs font-semibold">{l.code}</TableCell>
                   <TableCell className="font-medium">{l.name}</TableCell>
@@ -119,7 +126,7 @@ export default function LocationsPage() {
         </Table>
         {!loading && (
           <div className="border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
-            {locations.length} location{locations.length !== 1 ? 's' : ''} total
+            {visible.length} location{visible.length !== 1 ? 's' : ''} shown
           </div>
         )}
       </Card>

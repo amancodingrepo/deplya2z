@@ -39,6 +39,7 @@ export default function UsersPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [resettingId, setResettingId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -87,7 +88,23 @@ export default function UsersPage() {
     }
   }
 
-  const filtered = users.filter(u => {
+  async function handleResetPassword(u: User) {
+    const nextPw = prompt(`Set new password for ${u.name}`);
+    if (!nextPw) return;
+    const token = getToken();
+    if (!token) return;
+    setResettingId(u.id);
+    try {
+      await apiUpdateUser(token, u.id, { password: nextPw } as any);
+      alert('Password reset completed.');
+    } catch (e: any) {
+      alert(e.message ?? 'Failed to reset password');
+    } finally {
+      setResettingId(null);
+    }
+  }
+
+  const filtered = (users || []).filter(u => {
     if (search && !u.name.toLowerCase().includes(search.toLowerCase()) && !u.email.toLowerCase().includes(search.toLowerCase())) return false;
     if (roleFilter && u.role !== roleFilter) return false;
     if (statusFilter && u.status !== statusFilter) return false;
@@ -196,7 +213,14 @@ export default function UsersPage() {
                         disabled={togglingId === u.id}
                         className="text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
                       >
-                        {togglingId === u.id ? '…' : u.status === 'active' ? 'Deactivate' : 'Activate'}
+                        {togglingId === u.id ? '…' : u.status === 'active' ? 'Block' : 'Activate'}
+                      </button>
+                      <button
+                        onClick={() => handleResetPassword(u)}
+                        disabled={resettingId === u.id}
+                        className="text-xs font-medium text-warning hover:underline disabled:opacity-50"
+                      >
+                        {resettingId === u.id ? '…' : 'Reset Password'}
                       </button>
                       <button
                         onClick={() => handleDelete(u)}
@@ -214,7 +238,7 @@ export default function UsersPage() {
         </Table>
         {!loading && (
           <div className="border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
-            Showing {filtered.length} of {users.length} users
+            Showing {filtered.length} of {(users || []).length} users
           </div>
         )}
       </Card>

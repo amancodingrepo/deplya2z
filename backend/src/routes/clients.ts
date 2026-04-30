@@ -21,7 +21,8 @@ const clientSchema = z.object({
   contact_phone: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
-  status: z.enum(['active', 'inactive']).optional(),
+  gst_number: z.string().optional(),
+  status: z.enum(['active', 'inactive', 'blocked']).optional(),
 });
 
 // GET /clients
@@ -60,6 +61,10 @@ clientsRouter.get('/:id', async (req, res, next) => {
 
 const updateClientSchema = clientSchema.partial();
 
+const updateStatusSchema = z.object({
+  status: z.enum(['active', 'inactive', 'blocked']),
+});
+
 // PATCH /clients/:id
 clientsRouter.patch('/:id', async (req, res, next) => {
   try {
@@ -68,6 +73,21 @@ clientsRouter.patch('/:id', async (req, res, next) => {
       return res.status(400).json({ code: 'VALIDATION_ERROR', errors: body.error.issues });
     }
     const client = await updateClientStore(req.params.id, body.data);
+    if (!client) return res.status(404).json({ code: 'NOT_FOUND', message: 'Client not found' });
+    return res.json(client);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PATCH /clients/:id/status
+clientsRouter.patch('/:id/status', async (req, res, next) => {
+  try {
+    const body = updateStatusSchema.safeParse(req.body);
+    if (!body.success) {
+      return res.status(400).json({ code: 'VALIDATION_ERROR', errors: body.error.issues });
+    }
+    const client = await updateClientStore(req.params.id, { status: body.data.status });
     if (!client) return res.status(404).json({ code: 'NOT_FOUND', message: 'Client not found' });
     return res.json(client);
   } catch (err) {

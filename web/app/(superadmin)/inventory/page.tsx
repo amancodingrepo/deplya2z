@@ -149,8 +149,9 @@ export default function InventoryPage() {
       await apiInventoryAdjust(token, {
         product_id: adjusting.product_id,
         location_id: adjLocationId,
-        quantity: qty,
-        note: adjReason === 'other' ? adjNotes : adjReason,
+        new_quantity: qty,
+        reason: adjReason,
+        notes: adjReason === 'other' ? adjNotes : undefined,
       });
       setAdjusting(null);
       load();

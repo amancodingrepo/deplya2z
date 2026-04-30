@@ -19,15 +19,23 @@ export interface Product {
   id: string;
   sku: string;
   title: string;
-  shortName: string;
+  shortName?: string;
+  short_name?: string;
   brand: string;
-  vendor: string;
-  category: string;
-  model: string;
-  color: string;
+  vendor?: string;
+  category?: string;
+  model?: string;
+  color?: string;
   status: 'present' | 'inactive' | 'discontinued';
   customTag?: string;
   customCode?: string;
+  custom_style?: string;
+  image_url?: string;
+  thumbnail_url?: string;
+  low_stock_threshold?: number;
+  total_stock?: number;
+  reserved_stock?: number;
+  available_stock?: number;
   image?: string;
   description?: string;
   price?: number;
@@ -133,11 +141,14 @@ export interface Location {
 export interface ClientStore {
   id: string;
   name: string;
+  code?: string;
   contact_name: string;
   contact_email: string;
   contact_phone?: string;
   address?: string;
-  status: 'active' | 'inactive';
+  city?: string;
+  gst_number?: string;
+  status: 'active' | 'inactive' | 'blocked';
   created_at: string;
 }
 
@@ -263,13 +274,16 @@ export const apiDashboard = (token: string) =>
 /* ─── PRODUCTS ──────────────────────────────────── */
 export const apiProducts = (token: string, params?: {
   search?: string; category?: string; brand?: string;
-  status?: string; page?: number; limit?: number;
+  status?: string; sort?: string; include_stock?: boolean; location_id?: string; page?: number; limit?: number;
 }) => {
   const q = new URLSearchParams();
   if (params?.search) q.set('search', params.search);
   if (params?.category) q.set('category', params.category);
   if (params?.brand) q.set('brand', params.brand);
   if (params?.status) q.set('status', params.status);
+  if (params?.sort) q.set('sort', params.sort);
+  if (params?.include_stock) q.set('include_stock', 'true');
+  if (params?.location_id) q.set('location_id', params.location_id);
   if (params?.page != null) q.set('page', String(params.page));
   if (params?.limit != null) q.set('limit', String(params.limit));
   const qs = q.toString();
@@ -287,7 +301,7 @@ export const apiCreateProduct = (token: string, body: Partial<Product>) =>
 
 export const apiUpdateProduct = (token: string, id: string, body: Partial<Product>) =>
   apiFetch<DataResponse<Product>>(`/products/${id}`, token, {
-    method: 'PATCH',
+    method: 'PUT',
     body: JSON.stringify(body),
   });
 
@@ -334,7 +348,7 @@ export const apiInventoryLowStock = (token: string) =>
   apiFetch<ListResponse<LowStockAlert>>('/inventory/low-stock', token);
 
 export const apiInventoryAdjust = (token: string, body: {
-  product_id: string; location_id: string; quantity: number; note?: string;
+  product_id: string; location_id: string; new_quantity: number; reason: string; notes?: string;
 }) =>
   apiFetch<MessageResponse>('/inventory/adjust', token, {
     method: 'POST',
@@ -342,9 +356,9 @@ export const apiInventoryAdjust = (token: string, body: {
   });
 
 export const apiInventoryAddStock = (token: string, body: {
-  product_id: string; location_id: string; quantity: number; note?: string;
+  product_id: string; quantity_to_add: number; reason: string; notes?: string;
 }) =>
-  apiFetch<MessageResponse>('/inventory/add', token, {
+  apiFetch<MessageResponse>('/inventory/add-stock', token, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -389,26 +403,26 @@ export const apiCreateOrder = (token: string, body: {
   });
 
 export const apiApproveOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/approve`, token, { method: 'POST' });
+  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/approve`, token, { method: 'PATCH' });
 
 export const apiRejectOrder = (token: string, id: string, reason: string) =>
   apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/reject`, token, {
-    method: 'POST',
+    method: 'PATCH',
     body: JSON.stringify({ reason }),
   });
 
 export const apiPackOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/pack`, token, { method: 'POST' });
+  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/pack`, token, { method: 'PATCH' });
 
 export const apiDispatchOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/dispatch`, token, { method: 'POST' });
+  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/dispatch`, token, { method: 'PATCH' });
 
 export const apiConfirmReceive = (token: string, id: string) =>
-  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/receive`, token, { method: 'POST' });
+  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/confirm-receive`, token, { method: 'PATCH' });
 
 export const apiCancelOrder = (token: string, id: string, reason?: string) =>
   apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/cancel`, token, {
-    method: 'POST',
+    method: 'PATCH',
     body: JSON.stringify({ reason }),
   });
 
@@ -421,7 +435,15 @@ export const apiBulkOrders = (token: string, params?: {
   if (params?.page != null) q.set('page', String(params.page));
   if (params?.limit != null) q.set('limit', String(params.limit));
   const qs = q.toString();
-  return apiFetch<ListResponse<BulkOrder>>(`/bulk-orders${qs ? `?${qs}` : ''}`, token);
+  return apiFetch<ListResponse<BulkOrder> | BulkOrder[]>(`/bulk-orders${qs ? `?${qs}` : ''}`, token).then((r) => {
+    if (Array.isArray(r)) {
+      return {
+        data: r,
+        meta: { total: r.length, page: 1, limit: r.length || 1, pages: 1 },
+      };
+    }
+    return r;
+  });
 };
 
 export const apiCreateBulkOrder = (token: string, body: {
@@ -429,19 +451,23 @@ export const apiCreateBulkOrder = (token: string, body: {
 }) =>
   apiFetch<DataResponse<BulkOrder>>('/bulk-orders', token, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      client_store_id: body.client_id,
+      warehouse_id: body.warehouse_id,
+      items: body.items,
+    }),
     extraHeaders: { 'X-Idempotency-Key': crypto.randomUUID() },
   });
 
 export const apiPackBulkOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/pack`, token, { method: 'POST' });
+  apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/pack`, token, { method: 'PATCH' });
 
 export const apiDispatchBulkOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/dispatch`, token, { method: 'POST' });
+  apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/dispatch`, token, { method: 'PATCH' });
 
 export const apiCancelBulkOrder = (token: string, id: string, reason?: string) =>
   apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/cancel`, token, {
-    method: 'POST',
+    method: 'PATCH',
     body: JSON.stringify({ reason }),
   });
 
@@ -507,8 +533,8 @@ export const apiClients = (token: string, params?: { page?: number; limit?: numb
 };
 
 export const apiCreateClient = (token: string, body: {
-  name: string; contact_name: string; contact_email: string;
-  contact_phone?: string; address?: string;
+  name: string; code: string; contact_name: string; contact_email?: string;
+  contact_phone?: string; address?: string; city?: string; gst_number?: string;
 }) =>
   apiFetch<DataResponse<ClientStore>>('/clients', token, {
     method: 'POST',
@@ -521,7 +547,7 @@ export const apiUpdateClient = (token: string, id: string, body: Partial<ClientS
     body: JSON.stringify(body),
   });
 
-export const apiClientStatus = (token: string, id: string, status: 'active' | 'inactive') =>
+export const apiClientStatus = (token: string, id: string, status: 'active' | 'inactive' | 'blocked') =>
   apiFetch<DataResponse<ClientStore>>(`/clients/${id}/status`, token, {
     method: 'PATCH',
     body: JSON.stringify({ status }),

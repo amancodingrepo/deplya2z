@@ -21,6 +21,7 @@ interface SidebarProps {
   locationName?: string;
   userName?: string;
   userInitials?: string;
+  onLogout?: () => void;
 }
 
 function LogoMark() {
@@ -46,7 +47,7 @@ const badgeVariantClasses = {
   danger: 'bg-red-500/20 text-red-400',
 };
 
-export function Sidebar({ groups, activePath, roleName, locationName, userName, userInitials }: SidebarProps) {
+export function Sidebar({ groups, activePath, roleName, locationName, userName, userInitials, onLogout }: SidebarProps) {
   return (
     <aside className="flex h-dvh w-56 flex-shrink-0 flex-col bg-sidebar border-r border-sidebar-border">
 
@@ -124,13 +125,24 @@ export function Sidebar({ groups, activePath, roleName, locationName, userName, 
           </div>
         )}
 
-        <Link
-          href="/login"
-          className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-sidebar-foreground-muted hover:bg-sidebar-hover-bg hover:text-sidebar-foreground transition-colors"
-        >
-          <LogoutIcon />
-          <span>Log out</span>
-        </Link>
+        {onLogout ? (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] text-sidebar-foreground-muted hover:bg-sidebar-hover-bg hover:text-sidebar-foreground transition-colors"
+          >
+            <LogoutIcon />
+            <span>Log out</span>
+          </button>
+        ) : (
+          <Link
+            href="/login"
+            className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] text-sidebar-foreground-muted hover:bg-sidebar-hover-bg hover:text-sidebar-foreground transition-colors"
+          >
+            <LogoutIcon />
+            <span>Log out</span>
+          </Link>
+        )}
       </div>
     </aside>
   );

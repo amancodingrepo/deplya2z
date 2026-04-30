@@ -28,7 +28,7 @@ const statusLabels: Record<string, string> = {
 };
 
 type TabValue = 'active' | 'all' | 'completed';
-type ModalState = { type: 'receive' | 'cancel'; order: StoreOrder } | null;
+type ModalState = { type: 'receive' | 'cancel' | 'details'; order: StoreOrder; cancelReason?: string } | null;
 
 const activeStatuses = ['draft', 'confirmed', 'packed', 'dispatched', 'store_received'];
 
@@ -61,10 +61,12 @@ export default function MyOrdersPage() {
     setModal(null);
   }
 
-  async function handleCancel(order: StoreOrder) {
+   async function handleCancel(order: StoreOrder) {
     const token = getToken();
     if (!token) return;
-    try { await apiCancelOrder(token, order.id); } catch { /* ignore */ }
+    const reason = modal?.cancelReason?.trim();
+    if (!reason) return;
+    try { await apiCancelOrder(token, order.id, reason); } catch { /* ignore */ }
     setRefreshKey(k => k + 1);
     setModal(null);
   }
@@ -82,6 +84,29 @@ export default function MyOrdersPage() {
   function summaryText(o: StoreOrder) {
     if (o.items.length === 0) return '—';
     return o.items.map(i => `${i.qty}× ${i.name}`).join(', ');
+  }
+
+  function orderStatusLabel(status: StoreOrder['status']) {
+    return statusLabels[status] ?? status;
+  }
+
+  function statusStepIndex(status: StoreOrder['status']) {
+    switch (status) {
+      case 'draft':
+        return 0;
+      case 'confirmed':
+        return 1;
+      case 'packed':
+        return 2;
+      case 'dispatched':
+        return 3;
+      case 'store_received':
+        return 4;
+      case 'completed':
+        return 5;
+      case 'cancelled':
+        return -1;
+    }
   }
 
   return (
@@ -161,12 +186,12 @@ export default function MyOrdersPage() {
                           Confirm Receipt
                         </Button>
                       )}
-                      {o.status === 'draft' && (
-                        <Button size="sm" variant="outline" onClick={() => setModal({ type: 'cancel', order: o })}>
-                          Cancel
-                        </Button>
-                      )}
-                      <Button size="sm" variant="ghost">Details</Button>
+                       {o.status === 'draft' && (
+                         <Button size="sm" variant="outline" onClick={() => setModal({ type: 'cancel', order: o, cancelReason: '' })}>
+                           Cancel
+                         </Button>
+                       )}
+                      <Button size="sm" variant="ghost" onClick={() => setModal({ type: 'details', order: o })}>Details</Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -192,15 +217,141 @@ export default function MyOrdersPage() {
       />
 
       {/* Cancel Modal */}
-      <Dialog
-        open={modal?.type === 'cancel'}
-        onClose={() => setModal(null)}
-        title="Cancel Order"
-        description={`Cancel ${modal?.order.id}? This cannot be undone.`}
-        confirmLabel="Cancel Order"
-        confirmVariant="destructive"
-        onConfirm={() => { if (modal?.type === 'cancel') handleCancel(modal.order); }}
-      />
+      {modal?.type === 'cancel' && (
+        <Dialog
+          open
+          onClose={() => setModal(null)}
+          title={`Cancel ${modal.order.id}`}
+          description="Cancellation reason is required."
+          confirmLabel="Cancel Order"
+          confirmVariant="destructive"
+          onConfirm={() => { if (modal?.type === 'cancel') handleCancel(modal.order); }}
+        >
+          <div className="pt-2">
+            <label className="block text-[12px] font-medium text-foreground mb-1.5">Cancellation Reason <span className="text-destructive">*</span></label>
+            <textarea
+              value={modal.cancelReason ?? ''}
+              onChange={e => setModal(prev => prev ? { ...prev, cancelReason: e.target.value } : null)}
+              rows={3}
+              placeholder="e.g. Requested quantities no longer needed..."
+              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+            />
+          </div>
+        </Dialog>
+      )}
+
+      {/* Details Modal */}
+      {modal?.type === 'details' && (
+        <Dialog
+          open
+          onClose={() => setModal(null)}
+          title={`Order Details — ${modal.order.id}`}
+          description="Review the current order state, items, and next action."
+          size="lg"
+        >
+          <div className="flex flex-col gap-5">
+            <div className="grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4">
+              {[
+                { label: 'Store', value: modal.order.store },
+                { label: 'Warehouse', value: modal.order.warehouse },
+                { label: 'Created', value: modal.order.created },
+                { label: 'Status', value: orderStatusLabel(modal.order.status) },
+              ].map((row) => (
+                <div key={row.label} className="rounded-lg border border-border bg-surface-raised px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">{row.label}</p>
+                  <p className="mt-0.5 font-medium text-foreground">{row.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Items</p>
+              <div className="rounded-lg border border-border overflow-hidden">
+                <table className="w-full text-[13px]">
+                  <thead className="bg-surface-raised">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Product</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">SKU</th>
+                      <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modal.order.items.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-3 py-6 text-center text-[13px] text-muted-foreground">No line items found.</td>
+                      </tr>
+                    ) : (
+                      modal.order.items.map((item) => (
+                        <tr key={item.sku} className="border-t border-border">
+                          <td className="px-3 py-2 font-medium text-foreground">{item.name}</td>
+                          <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{item.sku}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold text-foreground">{item.qty}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Fulfillment</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {['Created', 'Approved', 'Packed', 'Dispatched', 'Received', 'Completed'].map((step, index) => {
+                  const current = statusStepIndex(modal.order.status);
+                  const done = current >= 0 && index < current;
+                  const active = current === index;
+                  const cancelled = modal.order.status === 'cancelled';
+
+                  return (
+                    <div
+                      key={step}
+                      className={[
+                        'rounded-lg border px-3 py-2 text-[12px]',
+                        cancelled
+                          ? 'border-destructive/20 bg-destructive/5 text-destructive'
+                          : active
+                            ? 'border-primary/30 bg-primary-subtle/20 text-foreground'
+                            : done
+                              ? 'border-success/20 bg-success-subtle/20 text-foreground'
+                              : 'border-border bg-surface-raised text-muted-foreground',
+                      ].join(' ')}
+                    >
+                      <p className="font-medium">{step}</p>
+                      <p className="mt-0.5 text-[11px]">
+                        {cancelled ? 'Cancelled' : active ? 'Current step' : done ? 'Completed' : 'Pending'}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+              <p className="text-[12px] text-muted-foreground">
+                {modal.order.status === 'dispatched' && 'Receive the order once the physical items arrive.'}
+                {modal.order.status === 'draft' && 'Draft orders can still be cancelled before approval.'}
+                {!['draft', 'dispatched'].includes(modal.order.status) && 'No action required for this status.'}
+              </p>
+              <div className="flex gap-2">
+                {modal.order.status === 'dispatched' && (
+                  <Button size="sm" onClick={() => handleReceive(modal.order)}>
+                    Confirm Receipt
+                  </Button>
+                )}
+                {modal.order.status === 'draft' && (
+                  <Button size="sm" variant="outline" onClick={() => handleCancel(modal.order)}>
+                    Cancel Order
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setModal(null)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Dialog>
+      )}
     </div>
   );
 }

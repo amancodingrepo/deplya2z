@@ -7,9 +7,13 @@ import { Badge, statusToBadgeVariant } from '../../../../components/ui/badge';
 import { Button } from '../../../../components/ui/button';
 import { Tabs } from '../../../../components/ui/tabs';
 import { Dialog } from '../../../../components/ui/dialog';
-import { getToken } from '../../../../lib/auth';
+import { getToken, getAuth } from '../../../../lib/auth';
 import { apiOrders, apiApproveOrder, apiRejectOrder, apiCancelOrder } from '../../../../lib/api';
 import type { StoreOrder } from '../../../../lib/api';
+
+const auth = getAuth();
+const userRole = auth?.user?.role;
+const isWarehouseManager = userRole === 'warehouse_manager';
 
 /* ─── Mock data ──────────────────────────────────── */
 const allOrders = [
@@ -47,7 +51,7 @@ const completedCount = allOrders.filter(o => ['completed', 'cancelled'].includes
 /* ─── Order Detail Drawer ────────────────────────── */
 function OrderDrawer({ order, onClose, onApprove, onReject }: {
   order: Order; onClose: () => void;
-  onApprove: () => void; onReject: () => void;
+  onApprove?: () => void; onReject?: () => void;
 }) {
   const stepIndex = STATUS_TO_STEP[order.status] ?? 0;
   const isCancelled = order.status === 'cancelled';
@@ -141,7 +145,7 @@ function OrderDrawer({ order, onClose, onApprove, onReject }: {
         </div>
 
         {/* Footer actions */}
-        {order.status === 'draft' && (
+        {order.status === 'draft' && onApprove && onReject && (
           <div className="border-t border-border px-6 py-4 flex gap-3">
             <Button className="flex-1" onClick={onApprove}>Approve Order</Button>
             <Button variant="destructive" className="flex-1" onClick={onReject}>Reject</Button>
@@ -196,6 +200,9 @@ export default function StoreOrdersPage() {
   const [approveModal, setApproveModal] = useState(false);
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [cancelModal, setCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [search, setSearch] = useState('');
 
   const [liveOrders, setLiveOrders] = useState<StoreOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
@@ -226,7 +233,11 @@ export default function StoreOrdersPage() {
       }))
     : allOrders;
 
-  const filtered = sourceOrders.filter(o => tab === 'all' ? true : o.status === tab);
+  const filtered = sourceOrders.filter(o => {
+    if (!(tab === 'all' ? true : o.status === tab)) return false;
+    if (!search.trim()) return true;
+    return o.id.toLowerCase().includes(search.trim().toLowerCase());
+  });
 
   const liveDraftCount = sourceOrders.filter(o => o.status === 'draft').length;
   const liveConfirmedCount = sourceOrders.filter(o => o.status === 'confirmed').length;
@@ -272,6 +283,14 @@ export default function StoreOrdersPage() {
         active={tab}
         onChange={setTab}
       />
+      <div className="max-w-sm">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by order ID..."
+          className="h-9 w-full rounded-md border border-border bg-surface px-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+        />
+      </div>
 
       {/* Orders table */}
       <div className="rounded-xl border border-border bg-surface overflow-hidden">
@@ -304,19 +323,26 @@ export default function StoreOrdersPage() {
                     <Badge variant={statusToBadgeVariant(o.status)} dot>{statusLabels[o.status]}</Badge>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground text-[12px] whitespace-nowrap">{o.created}</td>
-                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                    <div className="flex items-center justify-end gap-1.5">
-                      {o.status === 'draft' && (
-                        <>
-                          <Button size="sm" className="h-7 px-2 text-[11px]" onClick={() => { setSelectedOrder(o); setApproveModal(true); }}>Approve</Button>
-                          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => { setSelectedOrder(o); setRejectModal(true); }}>Reject</Button>
-                        </>
-                      )}
-                      {o.status !== 'draft' && (
-                        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setSelectedOrder(o)}>View</Button>
-                      )}
-                    </div>
-                  </td>
+                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                     <div className="flex items-center justify-end gap-1.5">
+                       {o.status === 'draft' && isWarehouseManager && (
+                         <>
+                           <Button size="sm" className="h-7 px-2 text-[11px]" onClick={() => { setSelectedOrder(o); setApproveModal(true); }}>Approve</Button>
+                           <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => { setSelectedOrder(o); setRejectModal(true); }}>Reject</Button>
+                         </>
+                       )}
+                       {o.status !== 'draft' && (
+                         <>
+                           {isWarehouseManager && (o.status === 'confirmed' || o.status === 'packed') && (
+                             <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => { setSelectedOrder(o); setCancelModal(true); }}>
+                               Cancel
+                             </Button>
+                           )}
+                           <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setSelectedOrder(o)}>View</Button>
+                         </>
+                       )}
+                     </div>
+                   </td>
                 </tr>
               ))}
             </tbody>
@@ -332,8 +358,8 @@ export default function StoreOrdersPage() {
         <OrderDrawer
           order={selectedOrder}
           onClose={() => setSelectedOrder(null)}
-          onApprove={() => setApproveModal(true)}
-          onReject={() => setRejectModal(true)}
+          onApprove={isWarehouseManager ? () => setApproveModal(true) : undefined}
+          onReject={isWarehouseManager ? () => setRejectModal(true) : undefined}
         />
       )}
 
@@ -382,6 +408,32 @@ export default function StoreOrdersPage() {
           <label className="block text-[12px] font-medium text-foreground mb-1.5">Rejection Reason <span className="text-destructive">*</span></label>
           <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3}
             placeholder="e.g. Insufficient stock for requested items..."
+            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none" />
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={cancelModal}
+        onClose={() => { setCancelModal(false); setCancelReason(''); }}
+        title={`Cancel ${selectedOrder?.id ?? ''}`}
+        description="Cancellation reason is required."
+        confirmLabel="Cancel Order"
+        confirmVariant="destructive"
+        onConfirm={async () => {
+          const token = getToken();
+          if (token && selectedOrder) {
+            try { await apiCancelOrder(token, selectedOrder.id, cancelReason); } catch { /* ignore */ }
+            loadOrders();
+          }
+          setCancelModal(false);
+          setCancelReason('');
+          setSelectedOrder(null);
+        }}
+      >
+        <div className="pt-2">
+          <label className="block text-[12px] font-medium text-foreground mb-1.5">Cancellation Reason <span className="text-destructive">*</span></label>
+          <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={3}
+            placeholder="e.g. Requested quantities no longer needed..."
             className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none" />
         </div>
       </Dialog>

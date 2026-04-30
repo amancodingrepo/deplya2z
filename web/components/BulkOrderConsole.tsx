@@ -13,18 +13,32 @@ type Props = {
   initialOrders: BulkOrder[];
 };
 
+type ConsoleBulkOrder = {
+  id: string;
+  order_id: string;
+  status: string;
+  created_at: string;
+};
+
 export function BulkOrderConsole({ token, warehouseId, clients, products, initialOrders }: Props) {
   const [clientId, setClientId] = useState(clients[0]?.id ?? '');
   const [productId, setProductId] = useState(products[0]?.id ?? '');
   const [qty, setQty] = useState(1);
-  const [orders, setOrders] = useState(initialOrders);
+  const [orders, setOrders] = useState<ConsoleBulkOrder[]>(
+    initialOrders.map((o) => ({
+      id: o.id,
+      order_id: o.id,
+      status: o.status,
+      created_at: o.created_at,
+    })),
+  );
   const [message, setMessage] = useState('');
 
   const clientOptions = useMemo(
     () =>
       clients.map((client) => ({
         value: client.id,
-        label: client.store_name,
+        label: client.name,
       })),
     [clients],
   );
@@ -55,16 +69,14 @@ export function BulkOrderConsole({ token, warehouseId, clients, products, initia
         qty,
       });
 
+      const newOrder: ConsoleBulkOrder = {
+        id: created.id,
+        order_id: created.order_id,
+        status: created.status,
+        created_at: new Date().toISOString(),
+      };
       setOrders((prev) => [
-        {
-          id: created.id,
-          order_id: created.order_id,
-          status: created.status,
-          client_store_id: clientId,
-          warehouse_id: warehouseId,
-          items: [{ product_id: productId, qty }],
-          created_at: new Date().toISOString(),
-        },
+        newOrder,
         ...prev,
       ]);
       setMessage(`Created ${created.order_id} (${created.status})`);

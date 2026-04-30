@@ -88,6 +88,7 @@ export default function WarehouseDashboard() {
 
   const [confirmedOrders, setConfirmedOrders] = useState<StoreOrder[]>(MOCK_CONFIRMED);
   const [packedOrders, setPackedOrders] = useState<StoreOrder[]>(MOCK_PACKED);
+  const [draftOrders, setDraftOrders] = useState<StoreOrder[]>([]);
   const [bulkOrders, setBulkOrders] = useState<BulkOrder[]>(MOCK_BULK);
   const [lowStock, setLowStock] = useState<LowStockAlert[]>(MOCK_LOW_STOCK);
   const [loading, setLoading] = useState(true);
@@ -97,16 +98,18 @@ export default function WarehouseDashboard() {
     if (!token) { setLoading(false); return; }
     setLoading(true);
     try {
-      const [confirmed, packed, bulk, ls] = await Promise.allSettled([
+      const [draft, confirmed, packed, bulk, ls] = await Promise.allSettled([
+        apiOrders(token, { status: 'draft', limit: 50 }),
         apiOrders(token, { status: 'confirmed', limit: 50 }),
         apiOrders(token, { status: 'packed', limit: 50 }),
         apiBulkOrders(token, { status: 'confirmed', limit: 20 }),
         apiInventoryLowStock(token),
       ]);
-      if (confirmed.status === 'fulfilled' && confirmed.value.data.length > 0) setConfirmedOrders(confirmed.value.data);
-      if (packed.status === 'fulfilled' && packed.value.data.length > 0) setPackedOrders(packed.value.data);
-      if (bulk.status === 'fulfilled' && bulk.value.data.length > 0) setBulkOrders(bulk.value.data);
-      if (ls.status === 'fulfilled' && ls.value.data.length > 0) setLowStock(ls.value.data);
+      if (draft.status === 'fulfilled' && draft.value.data?.length > 0) setDraftOrders(draft.value.data);
+      if (confirmed.status === 'fulfilled' && confirmed.value.data?.length > 0) setConfirmedOrders(confirmed.value.data);
+      if (packed.status === 'fulfilled' && packed.value.data?.length > 0) setPackedOrders(packed.value.data);
+      if (bulk.status === 'fulfilled' && bulk.value.data?.length > 0) setBulkOrders(bulk.value.data);
+      if (ls.status === 'fulfilled' && ls.value.data?.length > 0) setLowStock(ls.value.data);
     } finally {
       setLoading(false);
     }
@@ -148,13 +151,13 @@ export default function WarehouseDashboard() {
         </span>
       </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KPICard label="Orders to Pack" value={String(confirmedOrders.length)} sub="Approved, awaiting pack" accent="bg-primary/10 text-primary" icon={<ClipboardIcon />} />
-        <KPICard label="Ready to Dispatch" value={String(packedOrders.length)} sub="Packed & waiting" accent="bg-warning/10 text-warning" icon={<TruckIcon />} />
-        <KPICard label="Low Stock Items" value={String(lowStock.length)} sub={lowStock.some(i => i.available === 0) ? '1 out of stock' : 'Monitor closely'} accent="bg-destructive/10 text-destructive" icon={<ExclamationIcon />} />
-        <KPICard label="Dispatched Today" value="—" sub="Check reports for full view" accent="bg-success/10 text-success" icon={<BoxIcon />} />
-      </div>
+       {/* KPI cards */}
+       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+         <KPICard label="Pending Approvals" value={String(draftOrders?.length || 0)} sub="Store orders awaiting approval" accent="bg-primary/10 text-primary" icon={<ClipboardIcon />} />
+         <KPICard label="Orders to Pack" value={String(confirmedOrders.length)} sub="Approved, awaiting pack" accent="bg-primary/10 text-primary" icon={<ClipboardIcon />} />
+         <KPICard label="Ready to Dispatch" value={String(packedOrders.length)} sub="Packed & waiting" accent="bg-warning/10 text-warning" icon={<TruckIcon />} />
+         <KPICard label="Low Stock Items" value={String(lowStock.length)} sub={lowStock.some(i => i.available === 0) ? '1 out of stock' : 'Monitor closely'} accent="bg-destructive/10 text-destructive" icon={<ExclamationIcon />} />
+       </div>
 
       {/* Dispatch Queue — amber highlight, top priority */}
       <Card>

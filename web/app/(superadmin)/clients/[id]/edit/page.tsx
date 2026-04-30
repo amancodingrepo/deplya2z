@@ -14,6 +14,7 @@ import type { ClientStore } from '../../../../../lib/api';
 const statusOptions = [
   { value: 'active', label: 'Active' },
   { value: 'inactive', label: 'Inactive' },
+  { value: 'blocked', label: 'Blocked' },
 ];
 
 export default function EditClientPage() {
@@ -28,11 +29,14 @@ export default function EditClientPage() {
   const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState('');
+  const [code, setCode] = useState('');
   const [contactName, setContactName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
   const [status, setStatus] = useState('active');
+  const [gstNumber, setGstNumber] = useState('');
 
   useEffect(() => {
     const token = getToken();
@@ -43,10 +47,13 @@ export default function EditClientPage() {
         if (found) {
           setClient(found);
           setName(found.name);
+          setCode((found as any).code ?? '');
           setContactName(found.contact_name ?? '');
           setEmail(found.contact_email);
           setPhone(found.contact_phone ?? '');
           setAddress(found.address ?? '');
+          setCity((found as any).city ?? '');
+          setGstNumber((found as any).gst_number ?? '');
           setStatus(found.status);
         } else {
           setError('Client not found.');
@@ -58,18 +65,21 @@ export default function EditClientPage() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) { setError('Name and email are required.'); return; }
+    if (!name.trim() || !code.trim()) { setError('Name and code are required.'); return; }
     const token = getToken();
     if (!token) return;
     setSaving(true); setError(''); setSaveMsg('');
     try {
       await apiUpdateClient(token, id, {
         name,
+        code,
         contact_name: contactName,
         contact_email: email,
         contact_phone: phone.trim() || undefined,
         address: address.trim() || undefined,
-        status: status as 'active' | 'inactive',
+        city: city.trim() || undefined,
+        gst_number: gstNumber.trim() || undefined,
+        status: status as 'active' | 'inactive' | 'blocked',
       });
       setSaveMsg('Client updated.');
       setTimeout(() => setSaveMsg(''), 3000);
@@ -113,6 +123,7 @@ export default function EditClientPage() {
             <CardHeader><CardTitle>Client Details</CardTitle></CardHeader>
             <CardContent className="flex flex-col gap-4">
               <Input label="Store Name" value={name} onChange={e => setName(e.target.value)} required />
+              <Input label="Client Code" value={code} onChange={e => setCode(e.target.value)} required />
               <div className="grid grid-cols-2 gap-4">
                 <Input label="Owner / Contact Name" value={contactName} onChange={e => setContactName(e.target.value)} />
                 <Input label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
@@ -121,6 +132,8 @@ export default function EditClientPage() {
                 <Input label="Phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91 98000 00000" />
                 <Input label="Address" value={address} onChange={e => setAddress(e.target.value)} placeholder="Shop address, city" />
               </div>
+              <Input label="City" value={city} onChange={e => setCity(e.target.value)} />
+              <Input label="GST Number" value={gstNumber} onChange={e => setGstNumber(e.target.value)} />
               <Select label="Status" options={statusOptions} value={status} onChange={e => setStatus(e.target.value)} required />
             </CardContent>
           </Card>

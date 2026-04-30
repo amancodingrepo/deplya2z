@@ -8,7 +8,7 @@ import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Select } from '../../../../components/ui/select';
 import { getToken } from '../../../../lib/auth';
-import { apiCreateProduct } from '../../../../lib/api';
+import { apiCreateProduct, apiSkuCheck } from '../../../../lib/api';
 
 const categoryOptions = [
   { value: 'Electronics', label: 'Electronics' },
@@ -61,6 +61,8 @@ export default function CreateProductPage() {
   const [customCode, setCustomCode] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [skuChecking, setSkuChecking] = useState(false);
+  const [skuAvailable, setSkuAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     setCustomCode(generateCustomCode(sku, category));
@@ -79,22 +81,35 @@ export default function CreateProductPage() {
     try {
       await apiCreateProduct(token, {
         title,
-        shortName,
+        short_name: shortName,
         sku,
         brand,
-        vendor,
         model,
         color,
         category,
         status: status as 'present' | 'inactive' | 'discontinued',
-        customTag,
-        customCode,
-      });
+        custom_style: customTag,
+      } as any);
       router.push('/products');
     } catch (err: any) {
       setError(err.message ?? 'Failed to create product. Please try again.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function checkSkuAvailability() {
+    const token = getToken();
+    if (!token || !sku.trim()) return;
+    setSkuChecking(true);
+    try {
+      const r = await apiSkuCheck(token, sku.trim());
+      setSkuAvailable(Boolean(r.data.available));
+      if (!r.data.available) setError('SKU already exists.');
+    } catch {
+      setSkuAvailable(null);
+    } finally {
+      setSkuChecking(false);
     }
   }
 
@@ -145,9 +160,13 @@ export default function CreateProductPage() {
                   label="SKU"
                   value={sku}
                   onChange={e => setSku(e.target.value)}
+                  onBlur={checkSkuAvailability}
                   placeholder="SKU-TV-001"
                   required
                 />
+                {skuChecking && <p className="text-[11px] text-muted-foreground">Checking SKU...</p>}
+                {skuAvailable === true && <p className="text-[11px] text-success">SKU is available</p>}
+                {skuAvailable === false && <p className="text-[11px] text-destructive">SKU already exists</p>}
                 <Input
                   label="Brand"
                   value={brand}

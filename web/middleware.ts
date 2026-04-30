@@ -5,7 +5,7 @@ const PUBLIC_PATHS = ['/login'];
 
 // Which URL prefixes each role is allowed to access
 const ROLE_PREFIXES: Record<string, string[]> = {
-  superadmin:        ['/dashboard', '/products', '/inventory', '/orders', '/users', '/locations', '/clients', '/reports', '/settings'],
+  superadmin:        ['/dashboard', '/products', '/inventory', '/orders', '/users', '/locations', '/clients', '/reports', '/settings', '/staff'],
   warehouse_manager: ['/wh/'],
   store_manager:     ['/st/'],
 };

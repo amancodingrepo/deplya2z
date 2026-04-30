@@ -25,10 +25,27 @@ export default function SettingsPage() {
   const [pwSaving, setPwSaving] = useState(false);
   const [pwMsg, setPwMsg] = useState('');
   const [pwError, setPwError] = useState('');
+  const [notifyOrder, setNotifyOrder] = useState(true);
+  const [notifyLowStock, setNotifyLowStock] = useState(true);
+  const [notifyFailures, setNotifyFailures] = useState(true);
 
   useEffect(() => {
     if (user?.name) setName(user.name);
+    try {
+      const raw = localStorage.getItem('a2z_notification_prefs');
+      if (raw) {
+        const p = JSON.parse(raw);
+        setNotifyOrder(Boolean(p.notifyOrder));
+        setNotifyLowStock(Boolean(p.notifyLowStock));
+        setNotifyFailures(Boolean(p.notifyFailures));
+      }
+    } catch {}
   }, [user?.name]);
+
+  function saveNotificationPrefs() {
+    localStorage.setItem('a2z_notification_prefs', JSON.stringify({ notifyOrder, notifyLowStock, notifyFailures }));
+    alert('Notification preferences saved.');
+  }
 
   async function handleProfileSave(e: React.FormEvent) {
     e.preventDefault();
@@ -147,6 +164,27 @@ export default function SettingsPage() {
               </div>
               <div className="flex justify-end">
                 <Button size="sm" type="button">Save Settings</Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Notification Preferences</CardTitle></CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <label className="flex items-center justify-between rounded-md border border-border p-3 text-sm">
+                <span>Order updates</span>
+                <input type="checkbox" checked={notifyOrder} onChange={e => setNotifyOrder(e.target.checked)} />
+              </label>
+              <label className="flex items-center justify-between rounded-md border border-border p-3 text-sm">
+                <span>Low stock alerts</span>
+                <input type="checkbox" checked={notifyLowStock} onChange={e => setNotifyLowStock(e.target.checked)} />
+              </label>
+              <label className="flex items-center justify-between rounded-md border border-border p-3 text-sm">
+                <span>System failures</span>
+                <input type="checkbox" checked={notifyFailures} onChange={e => setNotifyFailures(e.target.checked)} />
+              </label>
+              <div className="flex justify-end">
+                <Button size="sm" type="button" onClick={saveNotificationPrefs}>Save Preferences</Button>
               </div>
             </CardContent>
           </Card>

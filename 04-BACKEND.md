@@ -87,7 +87,8 @@ backend/
 │   │   ├── routes/
 │   │   │   ├── auth.routes.ts (login, logout, token refresh)
 │   │   │   ├── products.routes.ts (CRUD)
-│   │   │   ├── orders.routes.ts (store + bulk orders)
+│   │   │   ├── orders.routes.ts (store orders)
+│   │   │   ├── bulk-orders.routes.ts (bulk orders)
 │   │   │   ├── inventory.routes.ts (stock, movements)
 │   │   │   ├── users.routes.ts (user management)
 │   │   │   ├── locations.routes.ts (stores, warehouses)
@@ -123,6 +124,7 @@ backend/
 │   ├── repositories/
 │   │   ├── BaseRepository.ts (common CRUD)
 │   │   ├── OrderRepository.ts
+│   │   ├── BulkOrderRepository.ts
 │   │   ├── InventoryRepository.ts
 │   │   ├── ProductRepository.ts
 │   │   ├── UserRepository.ts
@@ -318,6 +320,129 @@ router.post('/logout',
 export default router;
 ```
 
+### **Bulk Orders Routes**
+
+```typescript
+// src/api/routes/bulk-orders.routes.ts
+import express from 'express';
+import { OrderController } from '@/api/controllers/orders.controller';
+import { validateRequest } from '@/api/middleware/validation.middleware';
+import { verifyJWT } from '@/api/middleware/auth.middleware';
+import { requireRole } from '@/api/middleware/auth.middleware';
+
+const router = express.Router();
+const orderController = new OrderController();
+
+// Create bulk order (superadmin only)
+router.post('/',
+  verifyJWT,
+  requireRole('superadmin'),
+  validateRequest({
+    body: {
+      client_store_id: Joi.string().uuid().required(),
+      warehouse_id: Joi.string().uuid().required(),
+      items: Joi.array().items(
+        Joi.object({
+          product_id: Joi.string().uuid().required(),
+          qty: Joi.number().integer().min(1).required(),
+        })
+      ).min(1).required(),
+    },
+  }),
+  (req, res, next) => orderController.createBulkOrder(req, res).catch(next)
+);
+
+// Get bulk orders (superadmin, warehouse_manager)
+router.get('/',
+  verifyJWT,
+  requireRole('superadmin', 'warehouse_manager'),
+  (req, res, next) => orderController.getBulkOrders(req, res).catch(next)
+);
+
+// Mark as packed (warehouse_manager)
+router.patch('/:id/pack',
+  verifyJWT,
+  requireRole('warehouse_manager'),
+  (req, res, next) => orderController.markBulkPacked(req, res).catch(next)
+);
+
+// Dispatch bulk order (warehouse_manager)
+router.patch('/:id/dispatch',
+  verifyJWT,
+  requireRole('warehouse_manager'),
+  validateRequest({
+    body: {
+      dispatch_notes: Joi.string().optional(),
+    },
+  }),
+  (req, res, next) => orderController.dispatchBulkOrder(req, res).catch(next)
+);
+
+export default router;
+```
+
+### **Order Controller**
+
+```typescript
+// src/api/controllers/orders.controller.ts
+import { OrderService } from '@/services/OrderService';
+import { Request, Response } from 'express';
+
+export class OrderController {
+  constructor(private orderService: OrderService) {}
+
+  async createStoreOrder(req: Request, res: Response) {
+    const order = await this.orderService.createStoreOrder(req.body, req.user.id);
+    res.status(201).json(order);
+  }
+
+  async approveOrder(req: Request, res: Response) {
+    const order = await this.orderService.approveOrder(req.params.id, req.user.id);
+    res.json(order);
+  }
+
+  async markPacked(req: Request, res: Response) {
+    const order = await this.orderService.markPacked(req.params.id, req.user.id);
+    res.json(order);
+  }
+
+  async dispatchOrder(req: Request, res: Response) {
+    const order = await this.orderService.markDispatched(req.params.id, req.user.id, req.body.dispatch_notes);
+    res.json(order);
+  }
+
+  async confirmReceived(req: Request, res: Response) {
+    const order = await this.orderService.confirmReceived(req.params.id, req.user.id);
+    res.json(order);
+  }
+
+  async getOrders(req: Request, res: Response) {
+    const orders = await this.orderService.getOrders(req.query);
+    res.json(orders);
+  }
+
+  async createBulkOrder(req: Request, res: Response) {
+    const order = await this.orderService.createBulkOrder(req.body, req.user.id);
+    res.status(201).json(order);
+  }
+
+  async markBulkPacked(req: Request, res: Response) {
+    const order = await this.orderService.markBulkPacked(req.params.id, req.user.id);
+    res.json(order);
+  }
+
+  async dispatchBulkOrder(req: Request, res: Response) {
+    const order = await this.orderService.dispatchBulkOrder(req.params.id, req.user.id, req.body.dispatch_notes);
+    res.json(order);
+  }
+
+  async getBulkOrders(req: Request, res: Response) {
+    const orders = await this.orderService.getBulkOrders(req.query);
+    res.json(orders);
+  }
+}
+```
+
 ---
 
 ## Core Services
@@ -327,6 +452,7 @@ export default router;
 ```typescript
 // src/services/OrderService.ts
 import { OrderRepository } from '@/repositories/OrderRepository';
+import { BulkOrderRepository } from '@/repositories/BulkOrderRepository';
 import { InventoryService } from './InventoryService';
 import { AuditService } from './AuditService';
 import { NotificationService } from './NotificationService';
@@ -335,6 +461,7 @@ import { v4 as uuidv4 } from 'uuid';
 export class OrderService {
   constructor(
     private orderRepository: OrderRepository,
+    private bulkOrderRepository: BulkOrderRepository,
     private inventoryService: InventoryService,
     private auditService: AuditService,
     private notificationService: NotificationService
@@ -509,23 +636,244 @@ export class OrderService {
     // Get location code from store_id
     const location = await this.locationRepository.findById(store_id);
     const location_code = location.location_code;
-    
+
     // Get today's date in YYYYMMDD format
     const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    
+
     // Get count of orders created today
     const count = await this.orderRepository.countByDateAndLocation(store_id, date);
     const incrementing_number = String(count + 1).padStart(4, '0');
-    
+
     const order_id = `${prefix}-${location_code}-${date}-${incrementing_number}`;
-    
+
     // Verify uniqueness (database constraint will also check)
     const exists = await this.orderRepository.findByOrderId(order_id);
     if (exists) {
       throw new ConflictError('Order ID already exists');
     }
-    
+
     return order_id;
+  }
+
+  async createBulkOrder(data: CreateBulkOrderRequest, userId: string) {
+    const { client_store_id, warehouse_id, items } = data;
+
+    // Validate items exist and are available
+    for (const item of items) {
+      const available = await this.inventoryService.getAvailableStock(
+        item.product_id,
+        warehouse_id
+      );
+      if (available < item.qty) {
+        throw new ValidationError(
+          `Insufficient stock for product ${item.product_id}. ` +
+          `Available: ${available}, Requested: ${item.qty}`
+        );
+      }
+    }
+
+    // Generate order_id
+    const order_id = await this.generateBulkOrderId('BULK', warehouse_id);
+
+    // Create order (status: confirmed, auto-approved)
+    const order = await this.bulkOrderRepository.create({
+      order_id,
+      client_store_id,
+      warehouse_id,
+      status: 'confirmed',
+      items: items.map(i => ({ product_id: i.product_id, qty: i.qty })),
+      reserved_amount: items.reduce((sum, i) => sum + i.qty, 0),
+      created_by: userId,
+    });
+
+    // Reserve stock
+    await this.inventoryService.reserveStock(
+      warehouse_id,
+      items,
+      order.id
+    );
+
+    // Audit log
+    await this.auditService.log({
+      actor_user_id: userId,
+      action: 'create',
+      entity_type: 'bulk_order',
+      entity_id: order.id,
+      details: `Bulk order ${order_id} created and confirmed, stock reserved (${order.reserved_amount} units)`,
+      success: true,
+    });
+
+    // Notify warehouse
+    await this.notificationService.queue('bulk_order_created', {
+      warehouse_id,
+      order_id,
+      message: `Bulk order ${order_id} for client store ready to pack`,
+    });
+
+    return order;
+  }
+
+  async markBulkPacked(orderId: string, userId: string) {
+    const order = await this.bulkOrderRepository.findById(orderId);
+    if (!order) throw new NotFoundError('Bulk order not found');
+    if (order.status !== 'confirmed') {
+      throw new ValidationError(`Bulk order must be in confirmed status (current: ${order.status})`);
+    }
+
+    // Update order
+    const updated = await this.bulkOrderRepository.update(orderId, {
+      status: 'packed',
+    });
+
+    // Audit log
+    await this.auditService.log({
+      actor_user_id: userId,
+      action: 'pack',
+      entity_type: 'bulk_order',
+      entity_id: orderId,
+      details: `Bulk order ${order.order_id} marked as packed`,
+      success: true,
+    });
+
+    return updated;
+  }
+
+  async dispatchBulkOrder(orderId: string, userId: string, dispatch_notes?: string) {
+    const order = await this.bulkOrderRepository.findById(orderId);
+    if (!order) throw new NotFoundError('Bulk order not found');
+    if (order.status !== 'packed') {
+      throw new ValidationError(`Bulk order must be in packed status (current: ${order.status})`);
+    }
+
+    // Deduct stock from warehouse
+    await this.inventoryService.deductStock(
+      order.warehouse_id,
+      order.items,
+      orderId,
+      'order_deducted'
+    );
+
+    // Update order
+    const updated = await this.bulkOrderRepository.update(orderId, {
+      status: 'dispatched',
+      dispatched_at: new Date(),
+      dispatch_notes,
+    });
+
+    // Mark as completed (no store confirmation for bulk orders)
+    await this.bulkOrderRepository.update(orderId, { status: 'completed' });
+
+    // Audit log
+    await this.auditService.log({
+      actor_user_id: userId,
+      action: 'dispatch',
+      entity_type: 'bulk_order',
+      entity_id: orderId,
+      details: `Bulk order ${order.order_id} dispatched and completed, stock deducted from warehouse`,
+      success: true,
+    });
+
+    return updated;
+  }
+
+  private async generateBulkOrderId(prefix: string, warehouse_id: string): Promise<string> {
+    // Get location code from warehouse_id
+    const location = await this.locationRepository.findById(warehouse_id);
+    const location_code = location.location_code;
+
+    // Get today's date in YYYYMMDD format
+    const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
+
+    // Get count of bulk orders created today
+    const count = await this.bulkOrderRepository.countByDateAndWarehouse(warehouse_id, date);
+    const incrementing_number = String(count + 1).padStart(4, '0');
+
+    const order_id = `${prefix}-${location_code}-${date}-${incrementing_number}`;
+
+    // Verify uniqueness
+    const exists = await this.bulkOrderRepository.findByOrderId(order_id);
+    if (exists) {
+      throw new ConflictError('Bulk order ID already exists');
+    }
+
+    return order_id;
+  }
+
+  async getOrders(filters: any) {
+    return this.orderRepository.findAll(filters);
+  }
+
+  async getBulkOrders(filters: any) {
+    return this.bulkOrderRepository.findAll(filters);
+  }
+}
+```
+
+### **BulkOrderRepository**
+
+```typescript
+// src/repositories/BulkOrderRepository.ts
+import { BaseRepository } from './BaseRepository';
+
+export class BulkOrderRepository extends BaseRepository {
+  async create(data: any) {
+    const query = `
+      INSERT INTO bulk_orders (order_id, client_store_id, warehouse_id, status, items, reserved_amount, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `;
+    const values = [data.order_id, data.client_store_id, data.warehouse_id, data.status, JSON.stringify(data.items), data.reserved_amount, data.created_by];
+    return this.query(query, values);
+  }
+
+  async findById(id: string) {
+    const query = 'SELECT * FROM bulk_orders WHERE id = $1';
+    return this.query(query, [id]);
+  }
+
+  async findByOrderId(order_id: string) {
+    const query = 'SELECT * FROM bulk_orders WHERE order_id = $1';
+    return this.query(query, [order_id]);
+  }
+
+  async update(id: string, data: any) {
+    const fields = Object.keys(data);
+    const values = Object.values(data);
+    const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(', ');
+    const query = `UPDATE bulk_orders SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`;
+    return this.query(query, [id, ...values]);
+  }
+
+  async countByDateAndWarehouse(warehouse_id: string, date: string) {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM bulk_orders
+      WHERE warehouse_id = $1 AND DATE(created_at) = $2
+    `;
+    const result = await this.query(query, [warehouse_id, date]);
+    return parseInt(result.rows[0].count);
+  }
+
+  async findAll(filters: any) {
+    let query = 'SELECT * FROM bulk_orders WHERE 1=1';
+    const values = [];
+    let index = 1;
+
+    if (filters.status) {
+      query += ` AND status = $${index}`;
+      values.push(filters.status);
+      index++;
+    }
+
+    if (filters.warehouse_id) {
+      query += ` AND warehouse_id = $${index}`;
+      values.push(filters.warehouse_id);
+      index++;
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    return this.query(query, values);
   }
 }
 ```
