@@ -13,6 +13,7 @@ const MIGRATION_FILES = [
   '004_rls_policies.sql',
   '005_schema_alignment.sql',
   '006_seed_data.sql',
+  '007_staff_tables.sql',
 ];
 
 /**

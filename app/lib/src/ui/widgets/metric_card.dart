@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 
-/// Animated metric card with icon, glow, and count.
+/// KPI metric card — white card with colored icon accent.
 class MetricCard extends StatelessWidget {
   const MetricCard({
     super.key,
@@ -27,19 +27,10 @@ class MetricCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: AppTheme.bgCard,
+            color: AppTheme.white,
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-            border: Border.all(
-              color: color.withValues(alpha: 0.25),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.1),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            border: Border.all(color: AppTheme.s200, width: 1),
+            boxShadow: AppTheme.cardShadow,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -48,7 +39,7 @@ class MetricCard extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
+                  color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: color, size: 18),
@@ -59,8 +50,9 @@ class MetricCard extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
-                  color: color,
+                  color: AppTheme.s900,
                   letterSpacing: -0.5,
+                  fontFamily: 'Sora',
                 ),
               ),
               const SizedBox(height: 2),
@@ -68,7 +60,7 @@ class MetricCard extends StatelessWidget {
                 label,
                 style: const TextStyle(
                   fontSize: 11,
-                  color: AppTheme.textMuted,
+                  color: AppTheme.s500,
                   fontWeight: FontWeight.w500,
                 ),
               ),

@@ -11,18 +11,6 @@ import { getToken } from '../../../lib/auth';
 import { apiProducts as fetchProducts } from '../../../lib/api';
 import type { Product } from '../../../lib/api';
 
-/* ─── Data ──────────────────────────────────────── */
-export const products = [
-  { id: '1', sku: 'SKU-TV-001', title: 'Samsung 55" QLED TV', shortName: 'Samsung TV 55"', brand: 'Samsung', vendor: 'Samsung Electronics', category: 'Electronics', model: 'QN55Q80C', color: 'Black', status: 'present', customTag: 'featured', customCode: 'A2Z-EL-TV001', image: 'https://placehold.co/400x400/1a1a2e/4f8ef7?text=Samsung+TV' },
-  { id: '2', sku: 'SKU-MON-001', title: 'LG 23" Monitor', shortName: 'LG Monitor 23"', brand: 'LG', vendor: 'LG Electronics', category: 'Monitors', model: '23MK430H', color: 'Black', status: 'present', customTag: 'catalogue_ready', customCode: 'A2Z-MO-MON001', image: 'https://placehold.co/400x400/0f2027/4f8ef7?text=LG+Monitor' },
-  { id: '3', sku: 'SKU-FRG-003', title: 'LG French Door Fridge', shortName: 'LG Fridge 23cu', brand: 'LG', vendor: 'LG Appliances', category: 'Appliances', model: 'LRMVS3006S', color: 'Stainless', status: 'present', customTag: 'premium', customCode: 'A2Z-AP-FRG003', image: 'https://placehold.co/400x400/0d1b2a/4f8ef7?text=LG+Fridge' },
-  { id: '4', sku: 'SKU-LAP-007', title: 'Dell XPS 15', shortName: 'Dell XPS 15', brand: 'Dell', vendor: 'Dell Technologies', category: 'Laptops', model: 'XPS-9530', color: 'Silver', status: 'present', customTag: 'featured', customCode: 'A2Z-CO-LAP007', image: 'https://placehold.co/400x400/1a1a2e/e2e8f0?text=Dell+XPS+15' },
-  { id: '5', sku: 'SKU-PHN-012', title: 'iPhone 15 Pro', shortName: 'iPhone 15 Pro', brand: 'Apple', vendor: 'Apple Inc.', category: 'Phones', model: 'A3101', color: 'Titanium', status: 'inactive', customTag: 'sale', customCode: 'A2Z-PH-PHN012', image: 'https://placehold.co/400x400/1c1c1e/e2e8f0?text=iPhone+15+Pro' },
-  { id: '6', sku: 'SKU-AUD-004', title: 'Sony WH-1000XM5', shortName: 'Sony Headphones', brand: 'Sony', vendor: 'Sony Corporation', category: 'Audio', model: 'WH1000XM5', color: 'Black', status: 'present', customTag: 'catalogue_ready', customCode: 'A2Z-AU-AUD004', image: 'https://placehold.co/400x400/111827/4f8ef7?text=Sony+XM5' },
-  { id: '7', sku: 'SKU-TAB-002', title: 'iPad Air 5th Gen', shortName: 'iPad Air 5th', brand: 'Apple', vendor: 'Apple Inc.', category: 'Tablets', model: 'MM9D3LL', color: 'Space Gray', status: 'discontinued', customTag: 'default', customCode: 'A2Z-TB-TAB002', image: 'https://placehold.co/400x400/1c1c1e/94a3b8?text=iPad+Air' },
-  { id: '8', sku: 'SKU-PHN-015', title: 'Samsung Galaxy S24 Ultra', shortName: 'Galaxy S24 Ultra', brand: 'Samsung', vendor: 'Samsung Electronics', category: 'Phones', model: 'SM-S928B', color: 'Titanium Black', status: 'present', customTag: 'premium', customCode: 'A2Z-PH-PHN015', image: 'https://placehold.co/400x400/0f2027/4f8ef7?text=Galaxy+S24' },
-];
-
 const categories = ['All', 'Electronics', 'Monitors', 'Appliances', 'Laptops', 'Phones', 'Audio', 'Tablets'];
 
 const statusBadge: Record<string, 'success' | 'default' | 'destructive'> = { present: 'success', inactive: 'default', discontinued: 'destructive' };
@@ -54,6 +42,7 @@ export default function ProductsPage() {
 
   const [apiProductList, setApiProductList] = useState<Product[]>([]);
   const [apiLoading, setApiLoading] = useState(true);
+  const [apiError, setApiError] = useState('');
   const [apiMeta, setApiMeta] = useState({ total: 0, page: 1 });
 
   useEffect(() => {
@@ -61,6 +50,7 @@ export default function ProductsPage() {
     if (!token) { setApiLoading(false); return; }
     let cancelled = false;
     setApiLoading(true);
+    setApiError('');
     fetchProducts(token, { search: searchQuery, page: 1, limit: 50 })
       .then(r => {
         if (!cancelled) {
@@ -68,19 +58,29 @@ export default function ProductsPage() {
           setApiMeta({ total: r.meta.total, page: r.meta.page });
         }
       })
-      .catch(() => { /* fall through to mock data */ })
+      .catch((err: unknown) => {
+        if (!cancelled) setApiError((err as Error)?.message ?? 'Failed to load products');
+      })
       .finally(() => { if (!cancelled) setApiLoading(false); });
     return () => { cancelled = true; };
   }, [searchQuery]);
 
-  // Use API data if available, fall back to mock data
-  const sourceProducts = apiProductList.length > 0 ? apiProductList : products;
+  const sourceProducts = apiProductList;
 
   const filtered = sourceProducts.filter((p) => {
     if (category !== 'All' && p.category !== category) return false;
     if (statusFilter !== 'all' && p.status !== statusFilter) return false;
     return true;
   });
+
+  if (apiError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
+        <p className="text-destructive text-[13px]">{apiError}</p>
+        <Button variant="outline" onClick={() => { setApiError(''); setApiLoading(true); }}>Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-5">

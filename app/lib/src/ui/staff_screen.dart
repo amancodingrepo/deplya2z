@@ -8,6 +8,7 @@ import '../core/models.dart';
 import '../state/providers.dart';
 import 'widgets/glass_card.dart';
 import 'widgets/gradient_button.dart';
+import 'widgets/notification_bell.dart';
 
 class StaffScreen extends ConsumerStatefulWidget {
   const StaffScreen({super.key});
@@ -39,16 +40,8 @@ class _StaffScreenState extends ConsumerState<StaffScreen> {
     });
 
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF0D0D1A), Color(0xFF111128)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: IndexedStack(
+      body: SafeArea(
+        child: IndexedStack(
             index: _navIndex,
             children: [
               _DashboardTab(appState: appState, controller: controller),
@@ -58,7 +51,6 @@ class _StaffScreenState extends ConsumerState<StaffScreen> {
             ],
           ),
         ),
-      ),
       bottomNavigationBar: _buildBottomNav(),
     );
   }
@@ -166,6 +158,8 @@ class _DashboardTab extends ConsumerWidget {
                   height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
+              const SizedBox(width: 4),
+              const NotificationBell(),
             ],
           ),
           const SizedBox(height: 20),

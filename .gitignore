@@ -29,6 +29,9 @@ flutter_export_environment.sh
 .idea/
 .vscode/
 
+# Claude Code local settings
+.claude/
+
 # Logs
 logs/
 *.log

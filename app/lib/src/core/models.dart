@@ -1,5 +1,34 @@
 enum UserRole { superadmin, warehouseManager, storeManager, staff }
 
+enum BulkOrderStatus { confirmed, packed, dispatched, completed, cancelled }
+
+extension BulkOrderStatusExt on BulkOrderStatus {
+  String get apiValue => switch (this) {
+    BulkOrderStatus.confirmed => 'confirmed',
+    BulkOrderStatus.packed => 'packed',
+    BulkOrderStatus.dispatched => 'dispatched',
+    BulkOrderStatus.completed => 'completed',
+    BulkOrderStatus.cancelled => 'cancelled',
+  };
+
+  String get label => switch (this) {
+    BulkOrderStatus.confirmed => 'Confirmed',
+    BulkOrderStatus.packed => 'Packed',
+    BulkOrderStatus.dispatched => 'Dispatched',
+    BulkOrderStatus.completed => 'Completed',
+    BulkOrderStatus.cancelled => 'Cancelled',
+  };
+
+  static BulkOrderStatus fromApi(String v) => switch (v) {
+    'confirmed' => BulkOrderStatus.confirmed,
+    'packed' => BulkOrderStatus.packed,
+    'dispatched' => BulkOrderStatus.dispatched,
+    'completed' => BulkOrderStatus.completed,
+    'cancelled' => BulkOrderStatus.cancelled,
+    _ => BulkOrderStatus.confirmed,
+  };
+}
+
 enum OrderStatus {
   draft,
   confirmed,
@@ -223,6 +252,9 @@ class StoreOrder {
     required this.createdAt,
     required this.updatedAt,
     required this.syncStatus,
+    this.rejectionReason,
+    this.dispatchNotes,
+    this.createdByName,
   });
 
   final String id;
@@ -235,12 +267,19 @@ class StoreOrder {
   final DateTime createdAt;
   final DateTime updatedAt;
   final SyncStatus syncStatus;
+  final String? rejectionReason;
+  final String? dispatchNotes;
+  final String? createdByName;
+
+  int get totalUnits => items.fold(0, (sum, i) => sum + i.quantity);
 
   StoreOrder copyWith({
     OrderStatus? status,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
     List<OrderItem>? items,
+    String? rejectionReason,
+    String? dispatchNotes,
   }) {
     return StoreOrder(
       id: id,
@@ -253,6 +292,9 @@ class StoreOrder {
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncStatus: syncStatus ?? this.syncStatus,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
+      dispatchNotes: dispatchNotes ?? this.dispatchNotes,
+      createdByName: createdByName,
     );
   }
 
@@ -1062,6 +1104,263 @@ class LeaveRecord {
     reason: json['reason'] as String?,
   );
 }
+
+// ─── Cart (Store Manager multi-item ordering) ─────────────────────────────────
+
+class CartItem {
+  const CartItem({
+    required this.productId,
+    required this.title,
+    required this.sku,
+    required this.brand,
+    required this.quantity,
+    required this.availableStock,
+    this.imageUrl,
+  });
+
+  final String productId;
+  final String title;
+  final String sku;
+  final String brand;
+  final int quantity;
+  final int availableStock;
+  final String? imageUrl;
+
+  CartItem copyWith({int? quantity}) => CartItem(
+    productId: productId,
+    title: title,
+    sku: sku,
+    brand: brand,
+    quantity: quantity ?? this.quantity,
+    availableStock: availableStock,
+    imageUrl: imageUrl,
+  );
+}
+
+// ─── Bulk Orders ──────────────────────────────────────────────────────────────
+
+class BulkOrder {
+  const BulkOrder({
+    required this.id,
+    required this.orderId,
+    required this.clientId,
+    required this.clientName,
+    required this.warehouseId,
+    required this.status,
+    required this.items,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String orderId;
+  final String clientId;
+  final String clientName;
+  final String warehouseId;
+  final BulkOrderStatus status;
+  final List<OrderItem> items;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  int get totalUnits => items.fold(0, (sum, i) => sum + i.quantity);
+
+  BulkOrder copyWith({BulkOrderStatus? status, DateTime? updatedAt}) =>
+      BulkOrder(
+        id: id,
+        orderId: orderId,
+        clientId: clientId,
+        clientName: clientName,
+        warehouseId: warehouseId,
+        status: status ?? this.status,
+        items: items,
+        createdAt: createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+
+  factory BulkOrder.fromJson(Map<dynamic, dynamic> json) {
+    final rawStatus = (json['status'] ?? 'confirmed') as String;
+    final items = (json['items'] as List<dynamic>? ?? const <dynamic>[])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .map(
+          (it) => OrderItem(
+            productId: it['product_id'] as String,
+            title: (it['title'] ?? it['product_id'] ?? 'Unknown') as String,
+            sku: (it['sku'] ?? 'NA') as String,
+            quantity: (it['qty'] as num).toInt(),
+          ),
+        )
+        .toList();
+
+    return BulkOrder(
+      id: json['id'] as String,
+      orderId: (json['order_id'] ?? json['id']) as String,
+      clientId: (json['client_id'] ?? '') as String,
+      clientName: (json['client_name'] ?? json['client'] ?? 'Client') as String,
+      warehouseId: (json['warehouse_id'] ?? 'WH01') as String,
+      status: BulkOrderStatusExt.fromApi(rawStatus),
+      items: items,
+      createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ?? DateTime.now(),
+      updatedAt: DateTime.tryParse((json['updated_at'] ?? '') as String) ?? DateTime.now(),
+    );
+  }
+}
+
+// ─── Clients ──────────────────────────────────────────────────────────────────
+
+class Client {
+  const Client({
+    required this.id,
+    required this.name,
+    required this.code,
+    required this.contactName,
+    required this.contactEmail,
+    required this.phone,
+    required this.address,
+    required this.city,
+    required this.gstNumber,
+    required this.status,
+    required this.orderCount,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final String code;
+  final String contactName;
+  final String contactEmail;
+  final String phone;
+  final String address;
+  final String city;
+  final String gstNumber;
+  final String status; // active | inactive | blocked
+  final int orderCount;
+  final DateTime createdAt;
+
+  bool get isActive => status == 'active';
+
+  Client copyWith({String? status}) => Client(
+    id: id,
+    name: name,
+    code: code,
+    contactName: contactName,
+    contactEmail: contactEmail,
+    phone: phone,
+    address: address,
+    city: city,
+    gstNumber: gstNumber,
+    status: status ?? this.status,
+    orderCount: orderCount,
+    createdAt: createdAt,
+  );
+
+  factory Client.fromJson(Map<dynamic, dynamic> json) => Client(
+    id: json['id'] as String,
+    name: (json['name'] ?? '') as String,
+    code: (json['code'] ?? '') as String,
+    contactName: (json['contact_name'] ?? '') as String,
+    contactEmail: (json['contact_email'] ?? '') as String,
+    phone: (json['phone'] ?? '') as String,
+    address: (json['address'] ?? '') as String,
+    city: (json['city'] ?? '') as String,
+    gstNumber: (json['gst_number'] ?? '') as String,
+    status: (json['status'] ?? 'active') as String,
+    orderCount: (json['order_count'] as num?)?.toInt() ?? 0,
+    createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ?? DateTime.now(),
+  );
+}
+
+// ─── Stock Movement ───────────────────────────────────────────────────────────
+
+class StockMovement {
+  const StockMovement({
+    required this.id,
+    required this.productId,
+    required this.sku,
+    required this.title,
+    required this.locationId,
+    required this.quantityChange,
+    required this.reason,
+    required this.movedAt,
+    required this.movedByName,
+    this.notes,
+  });
+
+  final String id;
+  final String productId;
+  final String sku;
+  final String title;
+  final String locationId;
+  final int quantityChange;
+  final String reason;
+  final DateTime movedAt;
+  final String movedByName;
+  final String? notes;
+
+  factory StockMovement.fromJson(Map<dynamic, dynamic> json) => StockMovement(
+    id: json['id'] as String,
+    productId: (json['product_id'] ?? '') as String,
+    sku: (json['sku'] ?? '') as String,
+    title: (json['title'] ?? '') as String,
+    locationId: (json['location_id'] ?? '') as String,
+    quantityChange: (json['quantity_change'] ?? json['quantity'] as num?)?.toInt() ?? 0,
+    reason: (json['reason'] ?? '') as String,
+    movedAt: DateTime.tryParse((json['moved_at'] ?? json['created_at'] ?? '') as String) ?? DateTime.now(),
+    movedByName: (json['moved_by_name'] ?? json['user_name'] ?? 'System') as String,
+    notes: json['notes'] as String?,
+  );
+}
+
+// ─── In-App Notification ──────────────────────────────────────────────────────
+
+class AppNotification {
+  const AppNotification({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.message,
+    required this.isRead,
+    required this.createdAt,
+    this.payload,
+    this.readAt,
+  });
+
+  final String id;
+  final String type;
+  final String title;
+  final String message;
+  final bool isRead;
+  final DateTime createdAt;
+  final Map<String, dynamic>? payload;
+  final DateTime? readAt;
+
+  factory AppNotification.fromJson(Map<String, dynamic> json) => AppNotification(
+    id: json['id'] as String,
+    type: (json['type'] ?? '') as String,
+    title: (json['title'] ?? '') as String,
+    message: (json['message'] ?? '') as String,
+    isRead: (json['is_read'] as bool?) ?? false,
+    createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ?? DateTime.now(),
+    payload: json['payload'] != null
+        ? Map<String, dynamic>.from(json['payload'] as Map)
+        : null,
+    readAt: json['read_at'] != null
+        ? DateTime.tryParse(json['read_at'] as String)
+        : null,
+  );
+
+  AppNotification copyWith({bool? isRead, DateTime? readAt}) => AppNotification(
+    id: id,
+    type: type,
+    title: title,
+    message: message,
+    isRead: isRead ?? this.isRead,
+    createdAt: createdAt,
+    payload: payload,
+    readAt: readAt ?? this.readAt,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class StaffRecordsBundle {
   const StaffRecordsBundle({

@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../../components/ui/card';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Select } from '../../../../components/ui/select';
+import { getToken } from '../../../../lib/auth';
+import { apiCreateProduct, apiUploadProductImage } from '../../../../lib/api';
 
 const categoryOptions = [
   { value: 'Electronics', label: 'Electronics' },
@@ -49,6 +52,9 @@ function generateCustomCode(sku: string, category: string): string {
 }
 
 export default function CreateProductPage() {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [title, setTitle] = useState('');
   const [shortName, setShortName] = useState('');
   const [sku, setSku] = useState('');
@@ -60,10 +66,65 @@ export default function CreateProductPage() {
   const [status, setStatus] = useState('present');
   const [customTag, setCustomTag] = useState('default');
   const [customCode, setCustomCode] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     setCustomCode(generateCustomCode(sku, category));
   }, [sku, category]);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSave() {
+    if (!title.trim() || !sku.trim() || !brand.trim() || !shortName.trim()) {
+      setError('Title, Short Name, SKU, and Brand are required.');
+      return;
+    }
+    const token = getToken();
+    if (!token) { setError('Not authenticated.'); return; }
+
+    setSaving(true);
+    setError('');
+    try {
+      // 1 — Create product
+      const created = await apiCreateProduct(token, {
+        title: title.trim(),
+        shortName: shortName.trim(),
+        sku: sku.trim(),
+        brand: brand.trim(),
+        vendor: vendor.trim(),
+        model: model.trim(),
+        color: color.trim(),
+        category,
+        status: status as 'present' | 'inactive' | 'discontinued',
+        customTag,
+        customCode,
+      });
+
+      const productId = created.data.id;
+
+      // 2 — Upload image if provided
+      if (imageFile) {
+        await apiUploadProductImage(token, productId, imageFile);
+      }
+
+      router.push('/products');
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to save product. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -151,14 +212,35 @@ export default function CreateProductPage() {
 
           <Card>
             <CardHeader><CardTitle>Media</CardTitle></CardHeader>
-            <CardContent>
-              <div className="flex h-32 items-center justify-center rounded-md border-2 border-dashed border-border bg-muted/20 text-[13px] text-muted-foreground">
-                Drop image here or{' '}
-                <label className="ml-1 cursor-pointer text-primary hover:underline">
-                  browse
-                  <input type="file" accept="image/*" className="sr-only" aria-label="Upload product image" />
-                </label>
+            <CardContent className="flex flex-col gap-3">
+              {imagePreview && (
+                <div className="relative w-full max-h-52 overflow-hidden rounded-lg bg-surface-raised">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={imagePreview} alt="Preview" className="w-full object-contain max-h-52" />
+                </div>
+              )}
+              <div
+                className="flex h-32 items-center justify-center rounded-md border-2 border-dashed border-border bg-muted/20 text-[13px] text-muted-foreground cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {imageFile ? (
+                  <span className="text-foreground">{imageFile.name}</span>
+                ) : (
+                  <>
+                    Drop image here or{' '}
+                    <span className="ml-1 text-primary hover:underline">browse</span>
+                  </>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  aria-label="Upload product image"
+                  onChange={handleFileChange}
+                />
               </div>
+              <p className="text-[11px] text-muted-foreground">JPEG, PNG or WebP · max {5} MB · will be converted to WebP</p>
             </CardContent>
           </Card>
         </div>
@@ -203,9 +285,14 @@ export default function CreateProductPage() {
           <Card>
             <CardHeader><CardTitle>Actions</CardTitle></CardHeader>
             <CardContent className="flex flex-col gap-2">
-              <Button className="w-full">Save Product</Button>
+              {error && (
+                <p className="text-[12px] text-destructive text-center py-1">{error}</p>
+              )}
+              <Button className="w-full" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving…' : 'Save Product'}
+              </Button>
               <Link href="/products">
-                <Button variant="outline" className="w-full">Cancel</Button>
+                <Button variant="outline" className="w-full" disabled={saving}>Cancel</Button>
               </Link>
             </CardContent>
           </Card>

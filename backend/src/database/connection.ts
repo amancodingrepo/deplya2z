@@ -18,9 +18,9 @@ export const pool = new Pool({
         rejectUnauthorized: env.dbSslRejectUnauthorized,
       }
     : undefined,
-  max: Number(process.env.DB_POOL_MAX ?? 10),
-  idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30000),
-  connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 5000),
+  max: env.dbPoolMax,
+  idleTimeoutMillis: env.dbIdleTimeoutMs,
+  connectionTimeoutMillis: env.dbConnectionTimeoutMs,
 });
 
 export async function healthCheckDatabase() {

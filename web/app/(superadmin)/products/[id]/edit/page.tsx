@@ -1,16 +1,23 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../../../components/ui/card';
 import { Button } from '../../../../../components/ui/button';
 import { Badge } from '../../../../../components/ui/badge';
 import { Input } from '../../../../../components/ui/input';
 import { Select } from '../../../../../components/ui/select';
 import { Dialog } from '../../../../../components/ui/dialog';
-import { products } from '../../page';
+import { getToken } from '../../../../../lib/auth';
+import {
+  apiProduct,
+  apiUpdateProduct,
+  apiUploadProductImage,
+  apiDeleteProduct,
+} from '../../../../../lib/api';
+import type { Product } from '../../../../../lib/api';
 
 const categoryOptions = [
   { value: 'Electronics', label: 'Electronics' },
@@ -58,28 +65,147 @@ function FieldRow({ label, value }: { label: string; value: string }) {
 }
 
 export default function ProductEditPage() {
+  const router = useRouter();
   const params = useParams();
   const id = params.id as string;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const product = products.find(p => p.id === id) ?? products[0];
+  const [product, setProduct] = useState<Product | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
-  const [title, setTitle] = useState(product.title);
-  const [shortName, setShortName] = useState(product.shortName);
-  const [brand, setBrand] = useState(product.brand);
-  const [vendor, setVendor] = useState(product.vendor);
-  const [model, setModel] = useState(product.model);
-  const [color, setColor] = useState(product.color);
-  const [category, setCategory] = useState(product.category);
-  const [status, setStatus] = useState(product.status);
-  const [customTag, setCustomTag] = useState(product.customTag);
-  const [imageUrl, setImageUrl] = useState(product.image);
+  // Form fields
+  const [title, setTitle] = useState('');
+  const [shortName, setShortName] = useState('');
+  const [brand, setBrand] = useState('');
+  const [vendor, setVendor] = useState('');
+  const [model, setModel] = useState('');
+  const [color, setColor] = useState('');
+  const [category, setCategory] = useState('');
+  const [status, setStatus] = useState('present');
+  const [customTag, setCustomTag] = useState('default');
+
+  // Image
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  // Save state
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState(false);
-  const [deleteModal, setDeleteModal] = useState(false);
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  // Delete modal
+  const [deleteModal, setDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Load product from API
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { setLoadError('Not authenticated.'); setLoading(false); return; }
+    setLoading(true);
+    apiProduct(token, id)
+      .then(r => {
+        const p = r.data;
+        setProduct(p);
+        setTitle(p.title ?? '');
+        setShortName(p.shortName ?? '');
+        setBrand(p.brand ?? '');
+        setVendor(p.vendor ?? '');
+        setModel(p.model ?? '');
+        setColor(p.color ?? '');
+        setCategory(p.category ?? '');
+        setStatus(p.status ?? 'present');
+        setCustomTag(p.customTag ?? 'default');
+      })
+      .catch(() => setLoadError('Failed to load product.'))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
   }
+
+  async function handleSave() {
+    if (!title.trim() || !brand.trim() || !shortName.trim()) {
+      setSaveError('Title, Short Name, and Brand are required.');
+      return;
+    }
+    const token = getToken();
+    if (!token) { setSaveError('Not authenticated.'); return; }
+
+    setSaving(true);
+    setSaveError('');
+    setSaved(false);
+    try {
+      await apiUpdateProduct(token, id, {
+        title: title.trim(),
+        shortName: shortName.trim(),
+        brand: brand.trim(),
+        vendor: vendor.trim(),
+        model: model.trim(),
+        color: color.trim(),
+        category,
+        status: status as 'present' | 'inactive' | 'discontinued',
+        customTag,
+      });
+
+      if (imageFile) {
+        const imgResult = await apiUploadProductImage(token, id, imageFile);
+        setProduct(prev => prev ? { ...prev, image: imgResult.data.url } : prev);
+        setImageFile(null);
+        setImagePreview(null);
+      }
+
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err: any) {
+      setSaveError(err?.message ?? 'Failed to save changes.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    const token = getToken();
+    if (!token) return;
+    setDeleting(true);
+    try {
+      await apiDeleteProduct(token, id);
+      router.push('/products');
+    } catch {
+      setDeleteModal(false);
+      setSaveError('Failed to delete product.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground text-[13px]">
+        Loading product…
+      </div>
+    );
+  }
+
+  if (loadError || !product) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
+        <p className="text-destructive text-[13px]">{loadError || 'Product not found.'}</p>
+        <Link href="/products">
+          <Button variant="outline">Back to Products</Button>
+        </Link>
+      </div>
+    );
+  }
+
+  // Displayed image: new preview > existing image URL
+  const displayImage = imagePreview ?? product.image ?? null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -161,26 +287,39 @@ export default function ProductEditPage() {
           <Card>
             <CardHeader><CardTitle>Media</CardTitle></CardHeader>
             <CardContent className="flex flex-col gap-3">
-              {/* Current image preview */}
-              <div className="relative aspect-[16/9] max-h-52 w-full overflow-hidden rounded-lg bg-surface-raised">
-                <Image src={imageUrl} alt={title} fill className="object-cover" unoptimized />
-              </div>
-              <div className="flex items-center gap-3">
-                <Input
-                  label="Image URL"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="https://..."
-                  className="flex-1"
+              {/* Image preview */}
+              {displayImage && (
+                <div className="relative aspect-[16/9] max-h-52 w-full overflow-hidden rounded-lg bg-surface-raised">
+                  {imagePreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={imagePreview} alt={title} className="w-full h-full object-contain max-h-52" />
+                  ) : (
+                    <Image src={displayImage} alt={title} fill className="object-cover" unoptimized />
+                  )}
+                </div>
+              )}
+              <div
+                className="flex h-24 items-center justify-center rounded-md border-2 border-dashed border-border bg-muted/20 text-[13px] text-muted-foreground cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {imageFile ? (
+                  <span className="text-foreground">{imageFile.name}</span>
+                ) : (
+                  <>
+                    Replace image — drop here or{' '}
+                    <span className="ml-1 text-primary hover:underline">browse</span>
+                  </>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  aria-label="Upload product image"
+                  onChange={handleFileChange}
                 />
               </div>
-              <div className="flex h-24 items-center justify-center rounded-md border-2 border-dashed border-border bg-muted/20 text-[13px] text-muted-foreground">
-                Drop image here or{' '}
-                <label className="ml-1 cursor-pointer text-primary hover:underline">
-                  browse
-                  <input type="file" accept="image/*" className="sr-only" aria-label="Upload product image" />
-                </label>
-              </div>
+              <p className="text-[11px] text-muted-foreground">JPEG, PNG or WebP · max 5 MB · will be converted to WebP</p>
             </CardContent>
           </Card>
         </div>
@@ -210,7 +349,7 @@ export default function ProductEditPage() {
             <CardContent>
               <div className="flex flex-col">
                 <FieldRow label="SKU" value={product.sku} />
-                <FieldRow label="Custom Code" value={product.customCode} />
+                {product.customCode && <FieldRow label="Custom Code" value={product.customCode} />}
               </div>
               <p className="mt-3 text-[11px] text-muted-foreground">
                 Custom code is auto-generated and cannot be changed.
@@ -221,18 +360,24 @@ export default function ProductEditPage() {
           <Card>
             <CardHeader><CardTitle>Actions</CardTitle></CardHeader>
             <CardContent className="flex flex-col gap-2">
+              {saveError && (
+                <p className="text-[12px] text-destructive text-center py-1">{saveError}</p>
+              )}
               {saved && (
                 <p className="text-[12px] text-success text-center py-1">Changes saved!</p>
               )}
-              <Button className="w-full" onClick={handleSave}>Save Changes</Button>
+              <Button className="w-full" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </Button>
               <Link href="/products">
-                <Button variant="outline" className="w-full">Cancel</Button>
+                <Button variant="outline" className="w-full" disabled={saving}>Cancel</Button>
               </Link>
               <div className="border-t border-border pt-2 mt-1">
                 <Button
                   variant="destructive"
                   className="w-full"
                   onClick={() => setDeleteModal(true)}
+                  disabled={saving}
                 >
                   Delete Product
                 </Button>
@@ -248,12 +393,9 @@ export default function ProductEditPage() {
         onClose={() => setDeleteModal(false)}
         title="Delete Product"
         description={`Delete "${product.title}" (${product.sku})? This action cannot be undone.`}
-        confirmLabel="Delete"
+        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
         confirmVariant="destructive"
-        onConfirm={() => {
-          setDeleteModal(false);
-          window.location.href = '/products';
-        }}
+        onConfirm={handleDelete}
       />
     </div>
   );

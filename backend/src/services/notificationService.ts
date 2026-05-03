@@ -15,6 +15,10 @@ export class NotificationService {
    * Queue a notification to be sent
    */
   async queue(type: string, data: NotificationData): Promise<void> {
+    if (!notificationQueue) {
+      logger.warn({ type }, 'Notification skipped — Redis unavailable (REDIS_URL not set)');
+      return;
+    }
     try {
       await Promise.race([
         notificationQueue.add(

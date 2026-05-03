@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 
-/// Glassmorphic card with subtle border and gradient background.
+/// White card with subtle shadow — matches design Card component.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
@@ -12,6 +12,7 @@ class GlassCard extends StatelessWidget {
     this.gradient,
     this.onTap,
     this.borderRadius,
+    this.color,
   });
 
   final Widget child;
@@ -20,6 +21,7 @@ class GlassCard extends StatelessWidget {
   final Gradient? gradient;
   final VoidCallback? onTap;
   final double? borderRadius;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -27,12 +29,10 @@ class GlassCard extends StatelessWidget {
     final Widget card = Container(
       margin: margin ?? const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        gradient: gradient ?? AppTheme.cardGradient,
+        gradient: gradient,
+        color: gradient == null ? (color ?? AppTheme.white) : null,
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(
-          color: AppTheme.surfaceLight.withValues(alpha: 0.5),
-          width: 1,
-        ),
+        border: Border.all(color: AppTheme.s200, width: 1),
         boxShadow: AppTheme.cardShadow,
       ),
       child: Padding(
@@ -42,10 +42,7 @@ class GlassCard extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return GestureDetector(
-        onTap: onTap,
-        child: card,
-      );
+      return GestureDetector(onTap: onTap, child: card);
     }
     return card;
   }

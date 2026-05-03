@@ -50,5 +50,10 @@
 	<string>This app uses your location to verify you are at your work location when checking in or out.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app uses your location to verify you are at your work location when checking in or out.</string>
+	<!-- Photo library for image_picker (product/inventory images) -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app accesses your photo library to let you upload product and inventory images.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app uses the camera to let you take photos of products and inventory items.</string>
 </dict>
 </plist>

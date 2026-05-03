@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 
-/// Gradient-filled primary action button.
+/// Primary action button — solid blue per SupplyOS design.
 class GradientButton extends StatelessWidget {
   const GradientButton({
     super.key,
@@ -12,6 +12,7 @@ class GradientButton extends StatelessWidget {
     this.loading = false,
     this.compact = false,
     this.gradient,
+    this.color,
   });
 
   final String label;
@@ -20,20 +21,25 @@ class GradientButton extends StatelessWidget {
   final bool loading;
   final bool compact;
   final Gradient? gradient;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final bool enabled = onPressed != null && !loading;
+    final bgColor = color ?? AppTheme.primary;
+
     return Material(
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: InkWell(
-        onTap: loading ? null : onPressed,
+        onTap: enabled ? onPressed : null,
         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
         child: Ink(
           decoration: BoxDecoration(
-            gradient: onPressed != null
-                ? (gradient ?? AppTheme.primaryGradient)
+            gradient: enabled ? gradient : null,
+            color: gradient == null
+                ? (enabled ? bgColor : AppTheme.s200)
                 : null,
-            color: onPressed == null ? AppTheme.bgCardLight : null,
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
           ),
           padding: EdgeInsets.symmetric(
@@ -45,25 +51,27 @@ class GradientButton extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (loading) ...[
-                const SizedBox(
+                SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: Colors.white,
+                    color: enabled ? Colors.white : AppTheme.s500,
                   ),
                 ),
               ] else ...[
                 if (icon != null) ...[
-                  Icon(icon, color: Colors.white, size: 18),
+                  Icon(
+                    icon,
+                    color: enabled ? Colors.white : AppTheme.s500,
+                    size: 18,
+                  ),
                   const SizedBox(width: 8),
                 ],
                 Text(
                   label,
                   style: TextStyle(
-                    color: onPressed != null
-                        ? Colors.white
-                        : AppTheme.textMuted,
+                    color: enabled ? Colors.white : AppTheme.s500,
                     fontWeight: FontWeight.w600,
                     fontSize: compact ? 12 : 14,
                   ),

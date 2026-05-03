@@ -28,4 +28,13 @@ export const env = {
   maxPageSize: Number(process.env.MAX_PAGE_SIZE ?? 100),
   // Low stock
   defaultLowStockThreshold: Number(process.env.DEFAULT_LOW_STOCK_THRESHOLD ?? 10),
+  // Database pool
+  dbPoolMax: Number(process.env.DB_POOL_MAX ?? 10),
+  dbIdleTimeoutMs: Number(process.env.DB_IDLE_TIMEOUT_MS ?? 30000),
+  dbConnectionTimeoutMs: Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 5000),
+  // Redis
+  redisUrl: process.env.REDIS_URL ?? '',
+  // Resend (email notifications)
+  resendApiKey: process.env.RESEND_API_KEY ?? '',
+  resendFrom: process.env.RESEND_FROM ?? 'noreply@supplyos.app',
 };

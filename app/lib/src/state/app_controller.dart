@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' show asin, cos, pi, sin, sqrt;
+import 'dart:typed_data';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -154,6 +155,15 @@ class AppController extends StateNotifier<AppState> {
           clients = await _api.fetchClients(session.token);
         } catch (_) {}
 
+        // Fetch notifications (non-critical)
+        List<AppNotification> notifs = state.notifications;
+        int unread = state.unreadNotificationCount;
+        try {
+          final nr = await _api.fetchNotifications(token: session.token);
+          notifs = nr.items;
+          unread = nr.unreadCount;
+        } catch (_) {}
+
         state = state.copyWith(
           loading: false,
           employees: users,
@@ -167,6 +177,8 @@ class AppController extends StateNotifier<AppState> {
           inventory: const <InventoryItem>[],
           bulkOrders: bulkOrders,
           clients: clients,
+          notifications: notifs,
+          unreadNotificationCount: unread,
         );
         return;
       }
@@ -224,6 +236,15 @@ class AppController extends StateNotifier<AppState> {
         await _store.replaceStaff(staffMembers);
       }
 
+      // Fetch notifications (non-critical)
+      List<AppNotification> notifications = state.notifications;
+      int unreadCount = state.unreadNotificationCount;
+      try {
+        final result = await _api.fetchNotifications(token: session.token);
+        notifications = result.items;
+        unreadCount = result.unreadCount;
+      } catch (_) {}
+
       state = state.copyWith(
         loading: false,
         products: products,
@@ -239,6 +260,8 @@ class AppController extends StateNotifier<AppState> {
         attendanceSummary: summaries,
         bulkOrders: bulkOrders,
         storeInventory: storeInventory,
+        notifications: notifications,
+        unreadNotificationCount: unreadCount,
       );
     } catch (error) {
       state = state.copyWith(
@@ -246,6 +269,51 @@ class AppController extends StateNotifier<AppState> {
         message: error.toString().replaceFirst('Exception: ', ''),
       );
     }
+  }
+
+  // ── Notification methods ──────────────────────────────────────────────────
+
+  Future<void> fetchNotifications() async {
+    final session = state.session;
+    if (session == null || !state.isOnline) return;
+    try {
+      final result = await _api.fetchNotifications(token: session.token);
+      state = state.copyWith(
+        notifications: result.items,
+        unreadNotificationCount: result.unreadCount,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> markNotificationRead(String notificationId) async {
+    final session = state.session;
+    if (session == null) return;
+    try {
+      await _api.markNotificationRead(
+        token: session.token,
+        notificationId: notificationId,
+      );
+      state = state.copyWith(
+        notifications: state.notifications
+            .map((n) => n.id == notificationId ? n.copyWith(isRead: true) : n)
+            .toList(),
+        unreadNotificationCount: (state.unreadNotificationCount - 1).clamp(0, 9999),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    final session = state.session;
+    if (session == null) return;
+    try {
+      await _api.markAllNotificationsRead(token: session.token);
+      state = state.copyWith(
+        notifications: state.notifications
+            .map((n) => n.copyWith(isRead: true))
+            .toList(),
+        unreadNotificationCount: 0,
+      );
+    } catch (_) {}
   }
 
   Future<void> _refreshStaffData(UserSession session) async {
@@ -1719,6 +1787,38 @@ class AppController extends StateNotifier<AppState> {
         loading: false,
         message: error.toString().replaceFirst('Exception: ', ''),
       );
+    }
+  }
+
+  /// Upload (or replace) the product image. Returns the new image URL on success.
+  Future<String?> uploadProductImage({
+    required String productId,
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    final session = state.session;
+    if (session == null) return null;
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Image upload requires internet.');
+      return null;
+    }
+
+    try {
+      final url = await _api.uploadProductImage(
+        token: session.token,
+        productId: productId,
+        bytes: bytes,
+        filename: filename,
+      );
+      // Refresh products list so the new image URL appears
+      await refreshData();
+      return url;
+    } catch (error) {
+      state = state.copyWith(
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+      return null;
     }
   }
 

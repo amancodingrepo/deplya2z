@@ -1,10 +1,14 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../core/app_theme.dart';
 import '../core/models.dart';
 import '../state/providers.dart';
+import 'widgets/notification_bell.dart';
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -102,6 +106,7 @@ class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
+          const NotificationBell(),
           IconButton(
             onPressed: state.loading ? null : controller.refreshData,
             icon: const Icon(Icons.refresh_rounded, color: AppTheme.textPrimary),
@@ -664,6 +669,8 @@ class _ProductsTab extends ConsumerWidget {
     final modelCtrl = TextEditingController();
     final colorCtrl = TextEditingController();
     String status = 'present';
+    Uint8List? imageBytes;
+    String? imageFilename;
 
     await showDialog<void>(
       context: context,
@@ -716,22 +723,62 @@ class _ProductsTab extends ConsumerWidget {
                     initialValue: status,
                     decoration: const InputDecoration(labelText: 'Status'),
                     items: const [
-                      DropdownMenuItem(
-                        value: 'present',
-                        child: Text('Present'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'inactive',
-                        child: Text('Inactive'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'discontinued',
-                        child: Text('Discontinued'),
-                      ),
+                      DropdownMenuItem(value: 'present', child: Text('Present')),
+                      DropdownMenuItem(value: 'inactive', child: Text('Inactive')),
+                      DropdownMenuItem(value: 'discontinued', child: Text('Discontinued')),
                     ],
                     onChanged: (v) {
                       if (v != null) setLocal(() => status = v);
                     },
+                  ),
+                  const SizedBox(height: 12),
+                  // ── Image picker ──────────────────────────────────
+                  GestureDetector(
+                    onTap: () async {
+                      final picker = ImagePicker();
+                      final picked = await picker.pickImage(
+                        source: ImageSource.gallery,
+                        maxWidth: 1200,
+                        imageQuality: 90,
+                      );
+                      if (picked != null) {
+                        final bytes = await picked.readAsBytes();
+                        setLocal(() {
+                          imageBytes = bytes;
+                          imageFilename = picked.name;
+                        });
+                      }
+                    },
+                    child: Container(
+                      height: 80,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppTheme.s200),
+                        borderRadius: BorderRadius.circular(8),
+                        color: AppTheme.s50,
+                      ),
+                      child: imageBytes != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(7),
+                              child: Image.memory(
+                                imageBytes!,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                              ),
+                            )
+                          : const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.add_photo_alternate_outlined, color: AppTheme.s500),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Tap to add image',
+                                    style: TextStyle(fontSize: 12, color: AppTheme.s500),
+                                  ),
+                                ],
+                              ),
+                            ),
+                    ),
                   ),
                 ],
               ),
@@ -756,17 +803,24 @@ class _ProductsTab extends ConsumerWidget {
                       : shortNameCtrl.text.trim(),
                   sku: skuCtrl.text.trim(),
                   brand: brandCtrl.text.trim(),
-                  category: categoryCtrl.text.trim().isEmpty
-                      ? null
-                      : categoryCtrl.text.trim(),
-                  model: modelCtrl.text.trim().isEmpty
-                      ? null
-                      : modelCtrl.text.trim(),
-                  color: colorCtrl.text.trim().isEmpty
-                      ? null
-                      : colorCtrl.text.trim(),
+                  category: categoryCtrl.text.trim().isEmpty ? null : categoryCtrl.text.trim(),
+                  model: modelCtrl.text.trim().isEmpty ? null : modelCtrl.text.trim(),
+                  color: colorCtrl.text.trim().isEmpty ? null : colorCtrl.text.trim(),
                   status: status,
                 );
+                // Upload image after product is created
+                if (imageBytes != null && context.mounted) {
+                  final appState = ref.read(appControllerProvider);
+                  final newProduct = appState.adminProducts.firstWhere(
+                    (p) => p.sku == skuCtrl.text.trim(),
+                    orElse: () => appState.adminProducts.last,
+                  );
+                  await controller.uploadProductImage(
+                    productId: newProduct.id,
+                    bytes: imageBytes!,
+                    filename: imageFilename ?? 'product.jpg',
+                  );
+                }
                 if (context.mounted) Navigator.pop(ctx);
               },
               child: const Text('Create'),
@@ -790,6 +844,8 @@ class _ProductsTab extends ConsumerWidget {
     final modelCtrl = TextEditingController(text: product.model);
     final colorCtrl = TextEditingController(text: product.color);
     String status = product.status;
+    Uint8List? imageBytes;
+    String? imageFilename;
 
     await showDialog<void>(
       context: context,
@@ -837,22 +893,74 @@ class _ProductsTab extends ConsumerWidget {
                     initialValue: status,
                     decoration: const InputDecoration(labelText: 'Status'),
                     items: const [
-                      DropdownMenuItem(
-                        value: 'present',
-                        child: Text('Present'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'inactive',
-                        child: Text('Inactive'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'discontinued',
-                        child: Text('Discontinued'),
-                      ),
+                      DropdownMenuItem(value: 'present', child: Text('Present')),
+                      DropdownMenuItem(value: 'inactive', child: Text('Inactive')),
+                      DropdownMenuItem(value: 'discontinued', child: Text('Discontinued')),
                     ],
                     onChanged: (v) {
                       if (v != null) setLocal(() => status = v);
                     },
+                  ),
+                  const SizedBox(height: 12),
+                  // ── Image picker / replacer ───────────────────────
+                  GestureDetector(
+                    onTap: () async {
+                      final picker = ImagePicker();
+                      final picked = await picker.pickImage(
+                        source: ImageSource.gallery,
+                        maxWidth: 1200,
+                        imageQuality: 90,
+                      );
+                      if (picked != null) {
+                        final bytes = await picked.readAsBytes();
+                        setLocal(() {
+                          imageBytes = bytes;
+                          imageFilename = picked.name;
+                        });
+                      }
+                    },
+                    child: Container(
+                      height: 80,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppTheme.s200),
+                        borderRadius: BorderRadius.circular(8),
+                        color: AppTheme.s50,
+                      ),
+                      child: imageBytes != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(7),
+                              child: Image.memory(
+                                imageBytes!,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                              ),
+                            )
+                          : (product.imageUrl != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(7),
+                                  child: Image.network(
+                                    product.imageUrl!,
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    errorBuilder: (_, __, ___) => const Center(
+                                      child: Icon(Icons.broken_image_outlined, color: AppTheme.s500),
+                                    ),
+                                  ),
+                                )
+                              : const Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.add_photo_alternate_outlined, color: AppTheme.s500),
+                                      SizedBox(height: 4),
+                                      Text(
+                                        'Tap to replace image',
+                                        style: TextStyle(fontSize: 12, color: AppTheme.s500),
+                                      ),
+                                    ],
+                                  ),
+                                )),
+                    ),
                   ),
                 ],
               ),
@@ -867,26 +975,21 @@ class _ProductsTab extends ConsumerWidget {
               onPressed: () async {
                 await controller.updateProduct(
                   productId: product.id,
-                  title: titleCtrl.text.trim().isEmpty
-                      ? null
-                      : titleCtrl.text.trim(),
-                  shortName: shortNameCtrl.text.trim().isEmpty
-                      ? null
-                      : shortNameCtrl.text.trim(),
-                  brand: brandCtrl.text.trim().isEmpty
-                      ? null
-                      : brandCtrl.text.trim(),
-                  category: categoryCtrl.text.trim().isEmpty
-                      ? null
-                      : categoryCtrl.text.trim(),
-                  model: modelCtrl.text.trim().isEmpty
-                      ? null
-                      : modelCtrl.text.trim(),
-                  color: colorCtrl.text.trim().isEmpty
-                      ? null
-                      : colorCtrl.text.trim(),
+                  title: titleCtrl.text.trim().isEmpty ? null : titleCtrl.text.trim(),
+                  shortName: shortNameCtrl.text.trim().isEmpty ? null : shortNameCtrl.text.trim(),
+                  brand: brandCtrl.text.trim().isEmpty ? null : brandCtrl.text.trim(),
+                  category: categoryCtrl.text.trim().isEmpty ? null : categoryCtrl.text.trim(),
+                  model: modelCtrl.text.trim().isEmpty ? null : modelCtrl.text.trim(),
+                  color: colorCtrl.text.trim().isEmpty ? null : colorCtrl.text.trim(),
                   status: status,
                 );
+                if (imageBytes != null && context.mounted) {
+                  await controller.uploadProductImage(
+                    productId: product.id,
+                    bytes: imageBytes!,
+                    filename: imageFilename ?? 'product.jpg',
+                  );
+                }
                 if (context.mounted) Navigator.pop(ctx);
               },
               child: const Text('Save'),

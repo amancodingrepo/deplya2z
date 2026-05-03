@@ -6,6 +6,18 @@ import { pool } from './database/connection.js';
 import { runMigrations } from './scripts/runMigrations.js';
 
 async function start() {
+  // ── Production guards ────────────────────────────────────────────────
+  if (env.nodeEnv === 'production') {
+    if (!process.env.JWT_SECRET) {
+      console.error('[startup] FATAL: JWT_SECRET must be set in production');
+      process.exit(1);
+    }
+    if (!process.env.DATABASE_URL) {
+      console.error('[startup] FATAL: DATABASE_URL must be set in production');
+      process.exit(1);
+    }
+  }
+
   // ── Auto-migrate + seed on every startup (idempotent) ──────────────
   console.log('[startup] Running migrations & seed check…');
   try {

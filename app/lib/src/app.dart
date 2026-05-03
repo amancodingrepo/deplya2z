@@ -14,7 +14,7 @@ class StoreWarehouseApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'Store & Warehouse Supply Management',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
+      theme: AppTheme.lightTheme,
       routerConfig: router,
     );
   }

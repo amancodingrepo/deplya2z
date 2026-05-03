@@ -28,16 +28,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     }).toList();
 
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF0D0D1A), Color(0xFF111128)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
+      body: SafeArea(
+        child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header
@@ -214,7 +206,6 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             ],
           ),
         ),
-      ),
     );
   }
 }

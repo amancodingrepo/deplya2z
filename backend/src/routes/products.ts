@@ -1,11 +1,26 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
 
 import { pool } from '../database/connection.js';
 import { authRequired, rolesAllowed } from '../middleware/auth.js';
 import { writeAuditLog } from '../repositories/auditRepository.js';
 import { AppError } from '../shared/errors.js';
 import { env } from '../config/env.js';
+import { imageService } from '../services/ImageService.js';
+
+// ─── Multer (memory storage, 5 MB, images only) ───────────────────────────────
+const productImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: env.imageMaxInputSizeMb * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only JPEG, PNG, and WebP images are accepted'));
+    }
+  },
+});
 
 export const productsRouter = Router();
 
@@ -459,6 +474,77 @@ productsRouter.delete(
         return next(new AppError('deleted_at column not found — run migrations', 500, 'MIGRATION_REQUIRED'));
       }
       return next(error);
+    }
+  },
+);
+
+// ─── POST /products/:id/image — upload / replace product image ────────────────
+productsRouter.post(
+  '/:id/image',
+  rolesAllowed(['superadmin', 'warehouse_manager']),
+  productImageUpload.single('image'),
+  async (req, res, next) => {
+    try {
+      const { id } = req.params;
+
+      if (!req.file) {
+        return next(new AppError('No image file provided', 400, 'MISSING_FILE'));
+      }
+
+      // Verify product exists and isn't deleted
+      const existing = await pool.query(
+        `SELECT id, image_url FROM products WHERE id = $1 AND deleted_at IS NULL`,
+        [id],
+      );
+      if (!existing.rows[0]) {
+        return next(new AppError('Product not found', 404, 'NOT_FOUND'));
+      }
+
+      const oldImageUrl: string | null = existing.rows[0].image_url ?? null;
+
+      // Upload new image to R2 (processes to WebP + thumbnail)
+      const result = await imageService.processAndUpload(req.file.buffer, req.file.originalname);
+
+      // Persist URLs to DB
+      await pool.query(
+        `UPDATE products
+         SET image_url = $1, thumbnail_url = $2, updated_at = NOW()
+         WHERE id = $3`,
+        [result.url, result.thumbnail_url, id],
+      );
+
+      // Delete old image from R2 (best-effort, don't fail the request)
+      if (oldImageUrl) {
+        imageService.deleteImage(oldImageUrl).catch(() => {});
+      }
+
+      await writeAuditLog({
+        actorUserId: req.user!.id,
+        action: 'product_image_updated',
+        entityType: 'product',
+        entityId: id,
+        afterValue: { image_url: result.url, thumbnail_url: result.thumbnail_url },
+        details: `Product image uploaded (${result.compressed_size_bytes} bytes, ${result.compression_ratio * 100}% compression)`,
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          url: result.url,
+          thumbnail_url: result.thumbnail_url,
+          original_size_bytes: result.original_size_bytes,
+          compressed_size_bytes: result.compressed_size_bytes,
+          compression_ratio: result.compression_ratio,
+          width: result.width,
+          height: result.height,
+        },
+      });
+    } catch (err: any) {
+      // Multer file-filter error
+      if (err.message?.includes('Only JPEG')) {
+        return next(new AppError(err.message, 400, 'INVALID_FILE_TYPE'));
+      }
+      return next(err);
     }
   },
 );

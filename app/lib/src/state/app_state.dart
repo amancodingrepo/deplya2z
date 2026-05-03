@@ -23,6 +23,15 @@ class AppState {
     this.todayAttendance,
     required this.staffAttendance,
     required this.attendanceSummary,
+    // New features
+    required this.bulkOrders,
+    required this.clients,
+    required this.cart,
+    required this.storeInventory,
+    required this.stockMovements,
+    // Notifications
+    required this.notifications,
+    required this.unreadNotificationCount,
   });
 
   final bool initialized;
@@ -42,23 +51,25 @@ class AppState {
   final String? message;
 
   // ── Staff Management ──────────────────────────────────────────────────────
-  /// Staff members at the manager's location (for warehouse/store managers).
   final List<StaffMember> staffMembers;
-
-  /// Tasks assigned to the currently logged-in staff user.
   final List<Task> myTasks;
-
-  /// Today's attendance record for the currently logged-in staff user (null
-  /// if not yet checked in today).
   final StaffAttendanceRecord? todayAttendance;
-
-  /// Detailed attendance records — loaded by managers for their staff.
   final List<StaffAttendanceRecord> staffAttendance;
-
-  /// Monthly attendance summaries for all staff at the manager's location.
   final List<AttendanceMonthlySummary> attendanceSummary;
 
+  // ── New features ──────────────────────────────────────────────────────────
+  final List<BulkOrder> bulkOrders;
+  final List<Client> clients;
+  final List<CartItem> cart;
+  final List<InventoryItem> storeInventory;
+  final List<StockMovement> stockMovements;
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  final List<AppNotification> notifications;
+  final int unreadNotificationCount;
+
   bool get isLoggedIn => session != null;
+  int get cartItemCount => cart.fold(0, (sum, c) => sum + c.quantity);
 
   AppState copyWith({
     bool? initialized,
@@ -78,13 +89,19 @@ class AppState {
     List<InventoryItem>? adminInventory,
     String? message,
     bool clearMessage = false,
-    // Staff Management
     List<StaffMember>? staffMembers,
     List<Task>? myTasks,
     StaffAttendanceRecord? todayAttendance,
     bool clearTodayAttendance = false,
     List<StaffAttendanceRecord>? staffAttendance,
     List<AttendanceMonthlySummary>? attendanceSummary,
+    List<BulkOrder>? bulkOrders,
+    List<Client>? clients,
+    List<CartItem>? cart,
+    List<InventoryItem>? storeInventory,
+    List<StockMovement>? stockMovements,
+    List<AppNotification>? notifications,
+    int? unreadNotificationCount,
   }) {
     return AppState(
       initialized: initialized ?? this.initialized,
@@ -102,7 +119,6 @@ class AppState {
       leaveRecords: leaveRecords ?? this.leaveRecords,
       adminInventory: adminInventory ?? this.adminInventory,
       message: clearMessage ? null : (message ?? this.message),
-      // Staff
       staffMembers: staffMembers ?? this.staffMembers,
       myTasks: myTasks ?? this.myTasks,
       todayAttendance: clearTodayAttendance
@@ -110,6 +126,13 @@ class AppState {
           : (todayAttendance ?? this.todayAttendance),
       staffAttendance: staffAttendance ?? this.staffAttendance,
       attendanceSummary: attendanceSummary ?? this.attendanceSummary,
+      bulkOrders: bulkOrders ?? this.bulkOrders,
+      clients: clients ?? this.clients,
+      cart: cart ?? this.cart,
+      storeInventory: storeInventory ?? this.storeInventory,
+      stockMovements: stockMovements ?? this.stockMovements,
+      notifications: notifications ?? this.notifications,
+      unreadNotificationCount: unreadNotificationCount ?? this.unreadNotificationCount,
     );
   }
 
@@ -129,11 +152,17 @@ class AppState {
     leaveRecords: <LeaveRecord>[],
     adminInventory: <InventoryItem>[],
     message: null,
-    // Staff
     staffMembers: <StaffMember>[],
     myTasks: <Task>[],
     todayAttendance: null,
     staffAttendance: <StaffAttendanceRecord>[],
     attendanceSummary: <AttendanceMonthlySummary>[],
+    bulkOrders: <BulkOrder>[],
+    clients: <Client>[],
+    cart: <CartItem>[],
+    storeInventory: <InventoryItem>[],
+    stockMovements: <StockMovement>[],
+    notifications: <AppNotification>[],
+    unreadNotificationCount: 0,
   );
 }
