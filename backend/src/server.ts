@@ -1,4 +1,8 @@
 import 'dotenv/config';
+import { setDefaultResultOrder } from 'dns';
+
+// Force IPv4 DNS resolution — prevents ENETUNREACH on VPS hosts without IPv6 routing
+setDefaultResultOrder('ipv4first');
 
 import { createApp } from './app.js';
 import { env } from './config/env.js';
