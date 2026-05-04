@@ -485,7 +485,7 @@ productsRouter.post(
   productImageUpload.single('image'),
   async (req, res, next) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id as string;
 
       if (!req.file) {
         return next(new AppError('No image file provided', 400, 'MISSING_FILE'));
