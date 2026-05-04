@@ -11,8 +11,10 @@ import {
   BoxIcon, ClipboardIcon, TruckIcon, ExclamationIcon,
 } from '../../../components/layout/icons';
 import { getToken } from '../../../lib/auth';
-import { apiDashboard, apiOrders, apiInventoryLowStock, apiAuditLog, apiApproveOrder, apiRejectOrder } from '../../../lib/api';
+import { apiDashboard, apiOrders, apiInventoryLowStock, apiAuditLog, apiApproveOrder, apiRejectOrder, apiAnalytics, apiInventory } from '../../../lib/api';
 import type { StoreOrder, LowStockAlert } from '../../../lib/api';
+import type { OrdersBarDatum } from '../../../components/charts/orders-bar-chart';
+import type { InvDonutDatum } from '../../../components/charts/inventory-donut-chart';
 
 /* ─── Relative time helper ───────────────────────── */
 const timeAgo = (d: string) => {
@@ -96,6 +98,8 @@ export default function SuperadminDashboard() {
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [lowStock, setLowStock] = useState<LowStockItem[]>([]);
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [barData, setBarData] = useState<OrdersBarDatum[] | undefined>(undefined);
+  const [invDonut, setInvDonut] = useState<InvDonutDatum[] | undefined>(undefined);
   const [loading, setLoading] = useState(true);
 
   const approving = pendingApprovals.find(o => o.id === approvingId);
@@ -105,12 +109,17 @@ export default function SuperadminDashboard() {
     if (!token) { setLoading(false); return; }
     let cancelled = false;
 
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+
     Promise.allSettled([
       apiDashboard(token),
       apiOrders(token, { status: 'confirmed', limit: 5 }),
       apiInventoryLowStock(token),
       apiAuditLog(token, { limit: 7 }),
-    ]).then(([dash, orders, ls, audit]) => {
+      apiAnalytics(token, { date_from: sevenDaysAgo, date_to: today }),
+      apiInventory(token, { limit: 500 }),
+    ]).then(([dash, orders, ls, audit, analytics, inventory]) => {
       if (cancelled) return;
 
       if (dash.status === 'fulfilled') {
@@ -168,6 +177,49 @@ export default function SuperadminDashboard() {
           };
         });
         setRecentActivity(mapped);
+      }
+
+      /* ── orders bar chart — last 7 days ── */
+      if (analytics.status === 'fulfilled') {
+        const d = analytics.value.data as Record<string, unknown>;
+        const chartData = d.charts as Record<string, unknown[]> | undefined;
+
+        const storeByDay = new Map<string, number>();
+        if (chartData?.orders_over_time) {
+          for (const row of chartData.orders_over_time as { date: string; order_count: string }[]) {
+            const iso = row.date.split('T')[0];
+            storeByDay.set(iso, (storeByDay.get(iso) ?? 0) + Number(row.order_count));
+          }
+        }
+        const bulkByDay = new Map<string, number>();
+        if (chartData?.bulk_order_trend) {
+          for (const row of chartData.bulk_order_trend as { date: string; count: string }[]) {
+            bulkByDay.set(row.date.split('T')[0], Number(row.count));
+          }
+        }
+        const allDates = [...new Set([...storeByDay.keys(), ...bulkByDay.keys()])].sort().slice(-7);
+        if (allDates.length) {
+          setBarData(allDates.map(iso => ({
+            day:   new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' }),
+            store: storeByDay.get(iso) ?? 0,
+            bulk:  bulkByDay.get(iso) ?? 0,
+          })));
+        }
+      }
+
+      /* ── inventory donut ── */
+      if (inventory.status === 'fulfilled') {
+        let inStock = 0, lowS = 0, outOfStock = 0;
+        for (const row of inventory.value.data) {
+          if (row.available <= 0)               outOfStock++;
+          else if (row.available <= row.threshold) lowS++;
+          else                                     inStock++;
+        }
+        setInvDonut([
+          { name: 'In Stock',     value: inStock,    color: '#10B981' },
+          { name: 'Low Stock',    value: lowS,       color: '#F59E0B' },
+          { name: 'Out of Stock', value: outOfStock, color: '#EF4444' },
+        ]);
       }
 
       setLoading(false);
@@ -267,11 +319,11 @@ export default function SuperadminDashboard() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>Orders This Week</CardTitle></CardHeader>
-          <CardContent className="pt-0"><OrdersBarChart /></CardContent>
+          <CardContent className="pt-0"><OrdersBarChart data={barData} /></CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>Inventory Health</CardTitle></CardHeader>
-          <CardContent className="pt-0"><InventoryDonutChart /></CardContent>
+          <CardContent className="pt-0"><InventoryDonutChart data={invDonut} /></CardContent>
         </Card>
       </div>
 

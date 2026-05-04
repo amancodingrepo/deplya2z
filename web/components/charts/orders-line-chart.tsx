@@ -5,19 +5,30 @@ import {
   Legend, ResponsiveContainer,
 } from 'recharts';
 
-const data30 = Array.from({ length: 30 }, (_, i) => ({
-  day: `Apr ${i + 1}`,
-  store: Math.floor(Math.random() * 12) + 2,
-  bulk: Math.floor(Math.random() * 5) + 1,
-}));
+export interface OrdersLineDatum { day: string; store: number; bulk: number }
 
-export function OrdersLineChart({ data = data30 }: { data?: typeof data30 }) {
+export function OrdersLineChart({ data }: { data?: OrdersLineDatum[] }) {
+  const rows = data ?? [];
+
+  if (!rows.length) {
+    return (
+      <div className="h-[220px] flex items-center justify-center text-muted-foreground text-sm">
+        No order data available
+      </div>
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <LineChart data={data}>
+      <LineChart data={rows}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-        <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false}
-          interval={Math.floor(data.length / 6)} />
+        <XAxis
+          dataKey="day"
+          tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
+          axisLine={false}
+          tickLine={false}
+          interval={Math.max(0, Math.floor(rows.length / 6))}
+        />
         <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
         <Tooltip
           contentStyle={{ background: 'var(--surface-overlay)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}

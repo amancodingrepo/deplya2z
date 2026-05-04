@@ -5,20 +5,22 @@ import {
   Legend, ResponsiveContainer,
 } from 'recharts';
 
-const data = [
-  { day: 'Mon', store: 4, bulk: 1 },
-  { day: 'Tue', store: 7, bulk: 3 },
-  { day: 'Wed', store: 5, bulk: 2 },
-  { day: 'Thu', store: 9, bulk: 4 },
-  { day: 'Fri', store: 6, bulk: 2 },
-  { day: 'Sat', store: 3, bulk: 1 },
-  { day: 'Sun', store: 2, bulk: 0 },
-];
+export interface OrdersBarDatum { day: string; store: number; bulk: number }
 
-export function OrdersBarChart() {
+export function OrdersBarChart({ data }: { data?: OrdersBarDatum[] }) {
+  const rows = data ?? [];
+
+  if (!rows.length) {
+    return (
+      <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
+        No order data available
+      </div>
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={data} barCategoryGap="30%">
+      <BarChart data={rows} barCategoryGap="30%">
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
         <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
         <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} />
