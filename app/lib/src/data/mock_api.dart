@@ -147,11 +147,13 @@ class MockApi {
   /// Returns a rich list of products for listing with images.
   Future<List<Product>> fetchProducts(String token) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/products',
+        queryParameters: {'limit': 200},
         options: _authOptions(token),
       );
-      final data = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final data = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return data.map((row) {
         final json = Map<String, dynamic>.from(row as Map);
         return Product.fromJson(json);
@@ -168,24 +170,27 @@ class MockApi {
     String token,
   ) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final qp = <String, dynamic>{'limit': 200};
+      if (locationId.isNotEmpty) qp['location_id'] = locationId;
+      final response = await _dio.get<Map<String, dynamic>>(
         '/inventory',
-        queryParameters: {'location_id': locationId},
+        queryParameters: qp,
         options: _authOptions(token),
       );
 
-      final data = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final data = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return data
           .map((row) => Map<String, dynamic>.from(row as Map))
           .map(
             (json) => InventoryItem(
-              productId: json['product_id'] as String,
-              sku: json['sku'] as String,
-              title: json['title'] as String,
-              locationId: json['location_id'] as String,
-              availableStock: (json['available_stock'] as num).toInt(),
-              reservedStock: (json['reserved_stock'] as num).toInt(),
-              totalStock: (json['total_stock'] as num).toInt(),
+              productId: (json['product_id'] ?? '') as String,
+              sku: (json['sku'] ?? '') as String,
+              title: (json['title'] ?? json['product_title'] ?? '') as String,
+              locationId: (json['location_id'] ?? '') as String,
+              availableStock: (json['available_stock'] as num? ?? 0).toInt(),
+              reservedStock: (json['reserved_stock'] as num? ?? 0).toInt(),
+              totalStock: (json['total_stock'] as num? ?? 0).toInt(),
               cachedAt: DateTime.now(),
               brand: (json['brand'] ?? '') as String,
               category: (json['category'] ?? '') as String,
@@ -204,11 +209,13 @@ class MockApi {
 
   Future<List<StoreOrder>> fetchOrders(UserSession session) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/orders',
+        queryParameters: {'limit': 100},
         options: _authOptions(session.token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows.map((row) {
         final json = Map<String, dynamic>.from(row as Map);
         final status = OrderStatus.values.firstWhere(
@@ -371,11 +378,12 @@ class MockApi {
 
   Future<List<AppLocation>> fetchLocations(String token) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/locations',
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map(
             (row) =>
@@ -391,11 +399,13 @@ class MockApi {
 
   Future<List<EmployeeUser>> fetchUsers(String token) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/users',
+        queryParameters: {'limit': 200},
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map(
             (row) =>
@@ -427,7 +437,7 @@ class MockApi {
           'location_id': role == UserRole.superadmin ? null : locationId,
         },
       );
-      final data = response.data ?? <String, dynamic>{};
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -445,7 +455,7 @@ class MockApi {
         options: _authOptions(token),
         data: {'status': active ? 'active' : 'inactive'},
       );
-      final data = response.data ?? <String, dynamic>{};
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -479,30 +489,68 @@ class MockApi {
     String? imageFilename,
   }) async {
     try {
-      final form = FormData.fromMap({
-        'location_id': locationId,
-        'sku': sku,
-        'title': title,
-        'brand': brand,
-        'category': category ?? '',
-        'model': model ?? '',
-        'color': color ?? '',
-        'total_stock': totalStock,
-        if (imageBytes != null)
-          'image': MultipartFile.fromBytes(
-            imageBytes,
-            filename: imageFilename ?? 'inventory.jpg',
-            contentType: MediaType('image', 'jpeg'),
-          ),
-      });
-
-      final response = await _dio.post<Map<String, dynamic>>(
-        '/inventory',
+      // Step 1: create the product
+      final productRes = await _dio.post<Map<String, dynamic>>(
+        '/products',
         options: _authOptions(token),
-        data: form,
+        data: {
+          'title': title,
+          'short_name': sku,
+          'sku': sku,
+          'brand': brand,
+          'category': category ?? '',
+          'model': model ?? '',
+          'color': color ?? '',
+          'status': 'present',
+          'custom_style': 'default',
+        },
       );
-      final json = response.data ?? <String, dynamic>{};
-      return _inventoryFromApi(json);
+      final productData = (productRes.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final productId = productData['id'] as String;
+
+      // Step 2: upload image if provided
+      if (imageBytes != null) {
+        final ext = (imageFilename ?? 'image.jpg').split('.').last.toLowerCase();
+        final mime = ext == 'png' ? 'png' : (ext == 'webp' ? 'webp' : 'jpeg');
+        await _dio.post<void>(
+          '/products/$productId/image',
+          options: _authOptions(token),
+          data: FormData.fromMap({
+            'image': MultipartFile.fromBytes(
+              imageBytes,
+              filename: imageFilename ?? 'image.jpg',
+              contentType: MediaType('image', mime),
+            ),
+          }),
+        );
+      }
+
+      // Step 3: add stock to the location
+      await _dio.post<void>(
+        '/inventory/add',
+        options: _authOptions(token),
+        data: {
+          'product_id': productId,
+          'location_id': locationId,
+          'quantity_to_add': totalStock,
+          'reason': 'Initial stock',
+        },
+      );
+
+      return InventoryItem(
+        productId: productId,
+        sku: sku,
+        title: title,
+        locationId: locationId,
+        availableStock: totalStock,
+        reservedStock: 0,
+        totalStock: totalStock,
+        cachedAt: DateTime.now(),
+        brand: brand,
+        category: category ?? '',
+        model: model ?? '',
+        color: color ?? '',
+      );
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -525,32 +573,68 @@ class MockApi {
     String? imageFilename,
   }) async {
     try {
-      final form = FormData.fromMap({
-        'location_id': locationId,
-        if (totalStock != null) 'total_stock': totalStock,
-        if (reservedStock != null) 'reserved_stock': reservedStock,
-        if (issuedStock != null) 'issued_stock': issuedStock,
+      // Update product metadata fields
+      final productFields = <String, dynamic>{
         if (title != null) 'title': title,
         if (brand != null) 'brand': brand,
         if (category != null) 'category': category,
         if (model != null) 'model': model,
         if (color != null) 'color': color,
         if (status != null) 'status': status,
-        if (imageBytes != null)
-          'image': MultipartFile.fromBytes(
-            imageBytes,
-            filename: imageFilename ?? 'inventory.jpg',
-            contentType: MediaType('image', 'jpeg'),
-          ),
-      });
+      };
+      if (productFields.isNotEmpty) {
+        await _dio.patch<void>(
+          '/products/$productRef',
+          options: _authOptions(token),
+          data: productFields,
+        );
+      }
 
-      final response = await _dio.patch<Map<String, dynamic>>(
-        '/inventory/$productRef',
-        options: _authOptions(token),
-        data: form,
+      // Upload image if provided
+      if (imageBytes != null) {
+        final ext = (imageFilename ?? 'image.jpg').split('.').last.toLowerCase();
+        final mime = ext == 'png' ? 'png' : (ext == 'webp' ? 'webp' : 'jpeg');
+        await _dio.post<void>(
+          '/products/$productRef/image',
+          options: _authOptions(token),
+          data: FormData.fromMap({
+            'image': MultipartFile.fromBytes(
+              imageBytes,
+              filename: imageFilename ?? 'image.jpg',
+              contentType: MediaType('image', mime),
+            ),
+          }),
+        );
+      }
+
+      // Adjust stock quantity
+      if (totalStock != null) {
+        await _dio.post<void>(
+          '/inventory/adjust',
+          options: _authOptions(token),
+          data: {
+            'product_id': productRef,
+            'location_id': locationId,
+            'new_quantity': totalStock,
+            'reason': 'Manual update',
+          },
+        );
+      }
+
+      return InventoryItem(
+        productId: productRef,
+        sku: '',
+        title: title ?? '',
+        locationId: locationId,
+        availableStock: totalStock ?? 0,
+        reservedStock: reservedStock ?? 0,
+        totalStock: totalStock ?? 0,
+        cachedAt: DateTime.now(),
+        brand: brand ?? '',
+        category: category ?? '',
+        model: model ?? '',
+        color: color ?? '',
       );
-      final json = response.data ?? <String, dynamic>{};
-      return _inventoryFromApi(json);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -580,7 +664,8 @@ class MockApi {
         '/staff/me',
         options: _authOptions(token),
       );
-      final data = response.data ?? <String, dynamic>{};
+      final body = response.data ?? <String, dynamic>{};
+      final data = (body['data'] as Map<String, dynamic>?) ?? body;
       return StaffRecordsBundle.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -599,7 +684,8 @@ class MockApi {
         },
         options: _authOptions(token),
       );
-      final data = response.data ?? <String, dynamic>{};
+      final body = response.data ?? <String, dynamic>{};
+      final data = (body['data'] as Map<String, dynamic>?) ?? body;
       return StaffRecordsBundle.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -622,7 +708,7 @@ class MockApi {
           'status': status.apiValue,
         },
       );
-      final data = response.data ?? <String, dynamic>{};
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? (response.data ?? <String, dynamic>{});
       return AttendanceRecord.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -636,15 +722,17 @@ class MockApi {
     String? locationId,
   }) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/staff/members',
         queryParameters: {
           if (locationId != null && locationId.isNotEmpty)
             'location_id': locationId,
+          'limit': 200,
         },
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map(
             (row) =>
@@ -714,16 +802,18 @@ class MockApi {
     int? year,
   }) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/staff/attendance',
         queryParameters: {
           if (staffId != null) 'staff_id': staffId,
           if (month != null) 'month': month,
           if (year != null) 'year': year,
+          'limit': 100,
         },
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map(
             (row) => StaffAttendanceRecord.fromJson(
@@ -743,7 +833,7 @@ class MockApi {
     int? year,
   }) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/staff/attendance/summary',
         queryParameters: {
           if (locationId != null) 'location_id': locationId,
@@ -752,7 +842,8 @@ class MockApi {
         },
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map(
             (row) => AttendanceMonthlySummary.fromJson(
@@ -774,16 +865,18 @@ class MockApi {
     String? status,
   }) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/staff/tasks',
         queryParameters: {
           if (assignedToId != null) 'assigned_to_id': assignedToId,
           if (locationId != null) 'location_id': locationId,
           if (status != null) 'status': status,
+          'limit': 100,
         },
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map((row) => Task.fromJson(Map<String, dynamic>.from(row as Map)))
           .toList();
@@ -819,7 +912,7 @@ class MockApi {
             'related_entity_type': relatedEntityType,
         },
       );
-      final data = response.data ?? <String, dynamic>{};
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
       return Task.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -844,7 +937,7 @@ class MockApi {
           if (completionNote != null) 'completion_note': completionNote,
         },
       );
-      final data = response.data ?? <String, dynamic>{};
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
       return Task.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -959,15 +1052,17 @@ class MockApi {
     String? productId,
   }) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/inventory/movements',
         queryParameters: {
           if (locationId != null) 'location_id': locationId,
           if (productId != null) 'product_id': productId,
+          'limit': 100,
         },
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map((r) => StockMovement.fromJson(Map<String, dynamic>.from(r as Map)))
           .toList();
@@ -1007,11 +1102,13 @@ class MockApi {
 
   Future<List<BulkOrder>> fetchBulkOrders(String token) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/bulk-orders',
+        queryParameters: {'limit': 100},
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map((r) => BulkOrder.fromJson(Map<String, dynamic>.from(r as Map)))
           .toList();
@@ -1093,7 +1190,8 @@ class MockApi {
           'custom_style': customStyle,
         },
       );
-      return Product.fromJson(response.data ?? <String, dynamic>{});
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      return Product.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -1126,7 +1224,8 @@ class MockApi {
           if (customStyle != null) 'custom_style': customStyle,
         },
       );
-      return Product.fromJson(response.data ?? <String, dynamic>{});
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      return Product.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -1242,7 +1341,8 @@ class MockApi {
         options: _authOptions(token),
         data: {'location_code': code, 'name': name, 'type': type, 'address': address},
       );
-      return AppLocation.fromJson(response.data ?? <String, dynamic>{});
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      return AppLocation.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -1267,7 +1367,8 @@ class MockApi {
           if (status != null) 'status': status,
         },
       );
-      return AppLocation.fromJson(response.data ?? <String, dynamic>{});
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      return AppLocation.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -1277,11 +1378,13 @@ class MockApi {
 
   Future<List<Client>> fetchClients(String token) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/clients',
+        queryParameters: {'limit': 200},
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map((r) => Client.fromJson(Map<String, dynamic>.from(r as Map)))
           .toList();
@@ -1316,7 +1419,8 @@ class MockApi {
           'gst_number': gstNumber,
         },
       );
-      return Client.fromJson(response.data ?? <String, dynamic>{});
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      return Client.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -1333,7 +1437,8 @@ class MockApi {
         options: _authOptions(token),
         data: {'status': status},
       );
-      return Client.fromJson(response.data ?? <String, dynamic>{});
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      return Client.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -1360,7 +1465,8 @@ class MockApi {
           if (locationId != null) 'location_id': locationId,
         },
       );
-      return EmployeeUser.fromJson(response.data ?? <String, dynamic>{});
+      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
