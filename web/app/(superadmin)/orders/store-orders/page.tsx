@@ -8,22 +8,8 @@ import { Button } from '../../../../components/ui/button';
 import { Tabs } from '../../../../components/ui/tabs';
 import { Dialog } from '../../../../components/ui/dialog';
 import { getToken } from '../../../../lib/auth';
-import { apiOrders, apiApproveOrder, apiRejectOrder, apiCancelOrder } from '../../../../lib/api';
+import { apiOrders, apiApproveOrder, apiRejectOrder } from '../../../../lib/api';
 import type { StoreOrder } from '../../../../lib/api';
-
-/* ─── Mock data ──────────────────────────────────── */
-const allOrders = [
-  { id: 'ORD-ST01-0001', store: 'Store 01', warehouse: 'WH01', by: 'Priya Sharma', created: 'Apr 12, 10:30 AM', status: 'draft', items: [{ name: 'Samsung 55" TV', sku: 'SKU-TV-001', qty: 5, available: 12 }, { name: 'LG Monitor 23"', sku: 'SKU-MON-001', qty: 3, available: 2 }] },
-  { id: 'ORD-ST03-0004', store: 'Store 03', warehouse: 'WH01', by: 'Meera Das', created: 'Apr 12, 9:00 AM', status: 'draft', items: [{ name: 'MacBook Pro 14"', sku: 'SKU-LAP-008', qty: 1, available: 5 }, { name: 'iPhone 15 Pro', sku: 'SKU-PHN-012', qty: 2, available: 22 }] },
-  { id: 'ORD-ST02-0007', store: 'Store 02', warehouse: 'WH01', by: 'Raj Patel', created: 'Apr 12, 8:30 AM', status: 'draft', items: [{ name: 'Sony Headphones', sku: 'SKU-AUD-004', qty: 12, available: 18 }] },
-  { id: 'ORD-ST04-0009', store: 'Store 04', warehouse: 'WH02', by: 'Anita Roy', created: 'Apr 12, 7:15 AM', status: 'draft', items: [{ name: 'LG Fridge 23cu', sku: 'SKU-FRG-003', qty: 6, available: 1 }] },
-  { id: 'ORD-ST02-0002', store: 'Store 02', warehouse: 'WH01', by: 'Raj Patel', created: 'Apr 12, 9:15 AM', status: 'confirmed', items: [{ name: 'LG Fridge 23cu', sku: 'SKU-FRG-003', qty: 2, available: 1 }] },
-  { id: 'ORD-ST01-0005', store: 'Store 01', warehouse: 'WH01', by: 'Priya Sharma', created: 'Apr 11, 2:00 PM', status: 'packed', items: [{ name: 'Samsung 55" TV', sku: 'SKU-TV-001', qty: 2, available: 12 }] },
-  { id: 'ORD-ST03-0006', store: 'Store 03', warehouse: 'WH01', by: 'Meera Das', created: 'Apr 11, 11:00 AM', status: 'dispatched', items: [{ name: 'Sony Headphones', sku: 'SKU-AUD-004', qty: 10, available: 18 }] },
-  { id: 'ORD-ST02-0003', store: 'Store 02', warehouse: 'WH01', by: 'Raj Patel', created: 'Apr 10, 4:30 PM', status: 'store_received', items: [{ name: 'MacBook Pro 14"', sku: 'SKU-LAP-008', qty: 1, available: 5 }] },
-  { id: 'ORD-ST01-0007', store: 'Store 01', warehouse: 'WH01', by: 'Priya Sharma', created: 'Apr 9, 9:00 AM', status: 'completed', items: [{ name: 'iPhone 15 Pro', sku: 'SKU-PHN-012', qty: 8, available: 22 }] },
-  { id: 'ORD-ST04-0008', store: 'Store 04', warehouse: 'WH02', by: 'Anita Roy', created: 'Apr 9, 2:00 PM', status: 'cancelled', items: [{ name: 'Dell XPS 15', sku: 'SKU-LAP-007', qty: 3, available: 3 }] },
-];
 
 const statusLabels: Record<string, string> = {
   draft: 'Awaiting Approval', confirmed: 'Confirmed', packed: 'Packed',
@@ -36,17 +22,10 @@ const STATUS_TO_STEP: Record<string, number> = {
 };
 
 type TabValue = 'all' | 'draft' | 'confirmed' | 'packed' | 'dispatched' | 'completed' | 'cancelled';
-type Order = typeof allOrders[0];
-
-const draftCount = allOrders.filter(o => o.status === 'draft').length;
-const confirmedCount = allOrders.filter(o => o.status === 'confirmed').length;
-const packedCount = allOrders.filter(o => o.status === 'packed').length;
-const dispatchedCount = allOrders.filter(o => o.status === 'dispatched').length;
-const completedCount = allOrders.filter(o => ['completed', 'cancelled'].includes(o.status)).length;
 
 /* ─── Order Detail Drawer ────────────────────────── */
 function OrderDrawer({ order, onClose, onApprove, onReject }: {
-  order: Order; onClose: () => void;
+  order: StoreOrder; onClose: () => void;
   onApprove: () => void; onReject: () => void;
 }) {
   const stepIndex = STATUS_TO_STEP[order.status] ?? 0;
@@ -158,8 +137,8 @@ function OrderDrawer({ order, onClose, onApprove, onReject }: {
 }
 
 /* ─── Approve Modal Content ──────────────────────── */
-function ApproveModalContent({ order }: { order: Order }) {
-  const hasInsufficient = order.items.some(i => i.qty > i.available);
+function ApproveModalContent({ order }: { order: StoreOrder }) {
+  const hasInsufficient = order.items.some(i => i.qty > (i.available ?? 0));
   return (
     <div className="flex flex-col gap-3 pt-2">
       <p className="text-[13px] text-muted-foreground">Stock availability check for <span className="font-mono font-semibold text-foreground">{order.id}</span>:</p>
@@ -168,13 +147,14 @@ function ApproveModalContent({ order }: { order: Order }) {
           <span className="col-span-2">Product</span><span className="text-center">Req</span><span className="text-center">Avail</span>
         </div>
         {order.items.map(item => {
-          const ok = item.qty <= item.available;
+          const avail = item.available ?? 0;
+          const ok = item.qty <= avail;
           return (
             <div key={item.sku} className="grid grid-cols-4 px-3 py-3 border-t border-border text-[13px]">
               <span className="col-span-2 font-medium text-foreground">{item.name}</span>
               <span className="text-center tabular-nums">{item.qty}</span>
               <span className={`text-center tabular-nums font-semibold ${ok ? 'text-success' : 'text-destructive'}`}>
-                {item.available} {ok ? '✓' : '✗'}
+                {avail} {ok ? '✓' : '✗'}
               </span>
             </div>
           );
@@ -182,7 +162,7 @@ function ApproveModalContent({ order }: { order: Order }) {
       </div>
       {hasInsufficient && (
         <p className="text-[12px] font-semibold text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
-          Insufficient stock for {order.items.filter(i => i.qty > i.available).length} item(s). Cannot approve.
+          Insufficient stock for {order.items.filter(i => i.qty > (i.available ?? 0)).length} item(s). Cannot approve.
         </p>
       )}
     </div>
@@ -192,12 +172,12 @@ function ApproveModalContent({ order }: { order: Order }) {
 /* ─── Page ───────────────────────────────────────── */
 export default function StoreOrdersPage() {
   const [tab, setTab] = useState<TabValue>('draft');
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<StoreOrder | null>(null);
   const [approveModal, setApproveModal] = useState(false);
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
-  const [liveOrders, setLiveOrders] = useState<StoreOrder[]>([]);
+  const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
 
   const loadOrders = useCallback(async () => {
@@ -207,34 +187,21 @@ export default function StoreOrdersPage() {
     const statusParam = tab === 'all' ? undefined : tab;
     try {
       const r = await apiOrders(token, { status: statusParam, limit: 100 });
-      setLiveOrders(r.data);
-    } catch { /* keep mock data */ } finally { setOrdersLoading(false); }
+      setOrders(r.data);
+    } catch { /* keep existing data */ } finally { setOrdersLoading(false); }
   }, [tab]);
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
-  // Merge API data with mock data: prefer API if we have results
-  const sourceOrders: Order[] = liveOrders.length > 0
-    ? liveOrders.map(o => ({
-        id: o.id,
-        store: o.store,
-        warehouse: o.warehouse,
-        by: o.by,
-        created: o.created,
-        status: o.status,
-        items: o.items.map(i => ({ name: i.name, sku: i.sku, qty: i.qty, available: i.available ?? 0 })),
-      }))
-    : allOrders;
+  const filtered = tab === 'all' ? orders : orders.filter(o => o.status === tab);
 
-  const filtered = sourceOrders.filter(o => tab === 'all' ? true : o.status === tab);
+  const draftCount = orders.filter(o => o.status === 'draft').length;
+  const confirmedCount = orders.filter(o => o.status === 'confirmed').length;
+  const packedCount = orders.filter(o => o.status === 'packed').length;
+  const dispatchedCount = orders.filter(o => o.status === 'dispatched').length;
+  const completedCount = orders.filter(o => ['completed', 'cancelled'].includes(o.status)).length;
 
-  const liveDraftCount = sourceOrders.filter(o => o.status === 'draft').length;
-  const liveConfirmedCount = sourceOrders.filter(o => o.status === 'confirmed').length;
-  const livePackedCount = sourceOrders.filter(o => o.status === 'packed').length;
-  const liveDispatchedCount = sourceOrders.filter(o => o.status === 'dispatched').length;
-  const liveCompletedCount = sourceOrders.filter(o => ['completed', 'cancelled'].includes(o.status)).length;
-
-  function summaryLabel(o: Order) {
+  function summaryLabel(o: StoreOrder) {
     return `${o.items.reduce((s, i) => s + i.qty, 0)} units · ${o.items.length} item type${o.items.length > 1 ? 's' : ''}`;
   }
 
@@ -251,10 +218,10 @@ export default function StoreOrdersPage() {
           <h1 className="text-[20px] font-semibold text-foreground">Store Orders</h1>
           <p className="text-[13px] text-muted-foreground mt-0.5">Review and approve store refill requests</p>
         </div>
-        {liveDraftCount > 0 && (
+        {draftCount > 0 && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-[12px] font-semibold text-warning">
             <span className="size-1.5 rounded-full bg-warning animate-pulse" />
-            {liveDraftCount} awaiting approval
+            {draftCount} awaiting approval
           </span>
         )}
       </div>
@@ -262,12 +229,12 @@ export default function StoreOrdersPage() {
       {/* Tabs */}
       <Tabs
         tabs={[
-          { value: 'all', label: 'All', count: sourceOrders.length },
-          { value: 'draft', label: 'Awaiting Approval', count: liveDraftCount },
-          { value: 'confirmed', label: 'Confirmed', count: liveConfirmedCount },
-          { value: 'packed', label: 'Packed', count: livePackedCount },
-          { value: 'dispatched', label: 'Dispatched', count: liveDispatchedCount },
-          { value: 'completed', label: 'Completed', count: liveCompletedCount },
+          { value: 'all', label: 'All', count: orders.length },
+          { value: 'draft', label: 'Awaiting Approval', count: draftCount },
+          { value: 'confirmed', label: 'Confirmed', count: confirmedCount },
+          { value: 'packed', label: 'Packed', count: packedCount },
+          { value: 'dispatched', label: 'Dispatched', count: dispatchedCount },
+          { value: 'completed', label: 'Completed', count: completedCount },
         ]}
         active={tab}
         onChange={setTab}
@@ -285,7 +252,9 @@ export default function StoreOrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {ordersLoading ? (
+                <tr><td colSpan={7} className="px-4 py-12 text-center text-[13px] text-muted-foreground animate-pulse">Loading…</td></tr>
+              ) : filtered.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-12 text-center text-[13px] text-muted-foreground">No orders in this category</td></tr>
               ) : filtered.map(o => (
                 <tr key={o.id} className={`border-b border-border last:border-0 hover:bg-surface-raised transition-colors cursor-pointer ${o.status === 'draft' ? 'bg-primary-subtle/20' : ''}`}
@@ -323,7 +292,7 @@ export default function StoreOrdersPage() {
           </table>
         </div>
         <div className="border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
-          {ordersLoading ? 'Loading…' : `Showing ${filtered.length} of ${sourceOrders.length} orders · Click any row to view details`}
+          {ordersLoading ? 'Loading…' : `Showing ${filtered.length} of ${orders.length} orders · Click any row to view details`}
         </div>
       </div>
 

@@ -1,3 +1,6 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Card } from '../../../components/ui/card';
 import { Badge, statusToBadgeVariant } from '../../../components/ui/badge';
@@ -5,14 +8,9 @@ import { Button } from '../../../components/ui/button';
 import { Avatar } from '../../../components/ui/avatar';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell, TableEmpty } from '../../../components/ui/table';
 import { PlusIcon, SearchIcon } from '../../../components/layout/icons';
-
-const users = [
-  { id: '1', name: 'Alex Johnson', email: 'admin@a2z.com', role: 'superadmin', location: '—', status: 'active', lastLogin: 'Just now' },
-  { id: '2', name: 'Sam Park', email: 'warehouse@a2z.com', role: 'warehouse_manager', location: 'WH01', status: 'active', lastLogin: '2 hr ago' },
-  { id: '3', name: 'Priya Sharma', email: 'store01@a2z.com', role: 'store_manager', location: 'ST01', status: 'active', lastLogin: '1 hr ago' },
-  { id: '4', name: 'Raj Patel', email: 'store02@a2z.com', role: 'store_manager', location: 'ST02', status: 'active', lastLogin: '5 hr ago' },
-  { id: '5', name: 'Meera Das', email: 'store03@a2z.com', role: 'store_manager', location: 'ST03', status: 'inactive', lastLogin: '3 days ago' },
-];
+import { getToken } from '../../../lib/auth';
+import { apiUsers } from '../../../lib/api';
+import type { User } from '../../../lib/api';
 
 const roleLabels: Record<string, string> = {
   superadmin: 'Super Admin',
@@ -27,6 +25,18 @@ const roleVariants: Record<string, 'primary' | 'warning' | 'default'> = {
 };
 
 export default function UsersPage() {
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { setLoading(false); return; }
+    apiUsers(token)
+      .then(r => setUsers(r.data))
+      .catch(() => {/* keep empty list on error */})
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -60,46 +70,50 @@ export default function UsersPage() {
       </div>
 
       <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>User</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Location</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Last Login</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {users.length === 0 ? (
-              <TableEmpty colSpan={6}>No users found.</TableEmpty>
-            ) : (
-              users.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar name={u.name} size="sm" />
-                      <div>
-                        <p className="font-medium text-foreground">{u.name}</p>
-                        <p className="text-xs text-muted-foreground">{u.email}</p>
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="size-6 animate-spin rounded-full border-2 border-border border-t-primary" />
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.length === 0 ? (
+                <TableEmpty colSpan={5}>No users found.</TableEmpty>
+              ) : (
+                users.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar name={u.name} size="sm" />
+                        <div>
+                          <p className="font-medium text-foreground">{u.name}</p>
+                          <p className="text-xs text-muted-foreground">{u.email}</p>
+                        </div>
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell><Badge variant={roleVariants[u.role]}>{roleLabels[u.role]}</Badge></TableCell>
-                  <TableCell className="text-muted-foreground">{u.location}</TableCell>
-                  <TableCell><Badge variant={statusToBadgeVariant(u.status)} dot>{u.status.charAt(0).toUpperCase() + u.status.slice(1)}</Badge></TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{u.lastLogin}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <a href={`/users/${u.id}/edit`} className="text-xs font-medium text-primary hover:underline">Edit</a>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+                    </TableCell>
+                    <TableCell><Badge variant={roleVariants[u.role] ?? 'default'}>{roleLabels[u.role] ?? u.role}</Badge></TableCell>
+                    <TableCell className="text-muted-foreground">{u.location_code ?? '—'}</TableCell>
+                    <TableCell><Badge variant={statusToBadgeVariant(u.status)} dot>{u.status.charAt(0).toUpperCase() + u.status.slice(1)}</Badge></TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <a href={`/users/${u.id}/edit`} className="text-xs font-medium text-primary hover:underline">Edit</a>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        )}
       </Card>
     </div>
   );

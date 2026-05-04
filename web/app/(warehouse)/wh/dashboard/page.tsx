@@ -14,26 +14,6 @@ import {
 } from '../../../../lib/api';
 import type { StoreOrder, BulkOrder, LowStockAlert } from '../../../../lib/api';
 
-/* ─── Fallback mock data ─────────────────────────── */
-const MOCK_CONFIRMED: StoreOrder[] = [
-  { id: 'ORD-ST01-0001', store: 'Store 01', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Priya Sharma', created: 'Apr 12, 10:30 AM', status: 'confirmed', items: [{ id: '1', product_id: '1', sku: 'SKU-TV-001', name: 'Samsung 55" TV', qty: 5 }, { id: '2', product_id: '2', sku: 'SKU-MON-001', name: 'LG Monitor 23"', qty: 3 }] },
-  { id: 'ORD-ST02-0002', store: 'Store 02', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Raj Patel', created: 'Apr 12, 9:15 AM', status: 'confirmed', items: [{ id: '3', product_id: '3', sku: 'SKU-FRG-003', name: 'LG Fridge 23cu', qty: 2 }] },
-  { id: 'ORD-ST03-0006', store: 'Store 03', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Meera Das', created: 'Apr 11, 11:00 AM', status: 'confirmed', items: [{ id: '4', product_id: '4', sku: 'SKU-AUD-004', name: 'Sony Headphones', qty: 10 }] },
-];
-const MOCK_PACKED: StoreOrder[] = [
-  { id: 'ORD-ST01-0005', store: 'Store 01', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Priya Sharma', created: 'Apr 11, 2:00 PM', status: 'packed', items: [{ id: '5', product_id: '1', sku: 'SKU-TV-001', name: 'Samsung 55" TV', qty: 2 }] },
-  { id: 'ORD-ST02-0006', store: 'Store 02', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Raj Patel', created: 'Apr 11, 1:00 PM', status: 'packed', items: [{ id: '6', product_id: '5', sku: 'SKU-PHN-012', name: 'iPhone 15 Pro', qty: 8 }] },
-];
-const MOCK_BULK: BulkOrder[] = [
-  { id: 'BULK-0001', client_id: '', client_name: 'Metro Retail Chain', warehouse_id: '', warehouse: 'WH01', status: 'confirmed', items: [{ id: 'b1', product_id: '1', sku: 'SKU-TV-001', name: '50× Samsung TV', qty: 50 }], created_at: '', updated_at: '' },
-  { id: 'BULK-0002', client_id: '', client_name: 'TechMart India', warehouse_id: '', warehouse: 'WH01', status: 'packed', items: [{ id: 'b2', product_id: '5', sku: 'SKU-PHN-012', name: '200× iPhone 15', qty: 200 }], created_at: '', updated_at: '' },
-];
-const MOCK_LOW_STOCK: LowStockAlert[] = [
-  { sku: 'SKU-TV-001', product_title: 'Samsung 55" TV', location_code: 'WH01', available: 2, threshold: 5 },
-  { sku: 'SKU-FRG-003', product_title: 'LG Fridge 23cu', location_code: 'WH01', available: 1, threshold: 5 },
-  { sku: 'SKU-PHN-012', product_title: 'iPhone 15 Pro', location_code: 'WH01', available: 0, threshold: 10 },
-];
-
 /* ─── Sub-components ─────────────────────────────── */
 function KPICard({ label, value, sub, icon, accent }: { label: string; value: string; sub: string; icon: React.ReactNode; accent: string }) {
   return (
@@ -80,16 +60,16 @@ type ModalState =
 
 export default function WarehouseDashboard() {
   const user = getUser();
-  const locationName = user?.location_name ?? user?.location_code ?? 'WH01';
+  const locationName = user?.location_name ?? user?.location_code ?? 'Warehouse';
 
   const [modal, setModal] = useState<ModalState>(null);
   const [dispatchNotes, setDispatchNotes] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const [confirmedOrders, setConfirmedOrders] = useState<StoreOrder[]>(MOCK_CONFIRMED);
-  const [packedOrders, setPackedOrders] = useState<StoreOrder[]>(MOCK_PACKED);
-  const [bulkOrders, setBulkOrders] = useState<BulkOrder[]>(MOCK_BULK);
-  const [lowStock, setLowStock] = useState<LowStockAlert[]>(MOCK_LOW_STOCK);
+  const [confirmedOrders, setConfirmedOrders] = useState<StoreOrder[]>([]);
+  const [packedOrders, setPackedOrders] = useState<StoreOrder[]>([]);
+  const [bulkOrders, setBulkOrders] = useState<BulkOrder[]>([]);
+  const [lowStock, setLowStock] = useState<LowStockAlert[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
@@ -103,10 +83,10 @@ export default function WarehouseDashboard() {
         apiBulkOrders(token, { status: 'confirmed', limit: 20 }),
         apiInventoryLowStock(token),
       ]);
-      if (confirmed.status === 'fulfilled' && confirmed.value.data.length > 0) setConfirmedOrders(confirmed.value.data);
-      if (packed.status === 'fulfilled' && packed.value.data.length > 0) setPackedOrders(packed.value.data);
-      if (bulk.status === 'fulfilled' && bulk.value.data.length > 0) setBulkOrders(bulk.value.data);
-      if (ls.status === 'fulfilled' && ls.value.data.length > 0) setLowStock(ls.value.data);
+      if (confirmed.status === 'fulfilled') setConfirmedOrders(confirmed.value.data);
+      if (packed.status === 'fulfilled') setPackedOrders(packed.value.data);
+      if (bulk.status === 'fulfilled') setBulkOrders(bulk.value.data);
+      if (ls.status === 'fulfilled') setLowStock(ls.value.data);
     } finally {
       setLoading(false);
     }
@@ -142,10 +122,12 @@ export default function WarehouseDashboard() {
             {loading && <span className="ml-2 text-[11px] text-muted-foreground animate-pulse">Refreshing…</span>}
           </p>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-[12px] font-semibold text-warning">
-          <span className="size-1.5 rounded-full bg-warning animate-pulse" />
-          {confirmedOrders.length + packedOrders.length} orders pending action
-        </span>
+        {(confirmedOrders.length + packedOrders.length) > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-[12px] font-semibold text-warning">
+            <span className="size-1.5 rounded-full bg-warning animate-pulse" />
+            {confirmedOrders.length + packedOrders.length} orders pending action
+          </span>
+        )}
       </div>
 
       {/* KPI cards */}
@@ -168,7 +150,9 @@ export default function WarehouseDashboard() {
           </div>
         </CardHeader>
         <CardContent className="px-0 pb-0">
-          {packedOrders.length === 0 ? (
+          {loading ? (
+            <p className="px-5 py-8 text-center text-[13px] text-muted-foreground animate-pulse">Loading…</p>
+          ) : packedOrders.length === 0 ? (
             <p className="px-5 py-8 text-center text-[13px] text-muted-foreground">No orders ready to dispatch</p>
           ) : (
             <div className="divide-y divide-border">
@@ -203,7 +187,9 @@ export default function WarehouseDashboard() {
           </div>
         </CardHeader>
         <CardContent className="px-0 pb-0">
-          {confirmedOrders.length === 0 ? (
+          {loading ? (
+            <p className="px-5 py-8 text-center text-[13px] text-muted-foreground animate-pulse">Loading…</p>
+          ) : confirmedOrders.length === 0 ? (
             <p className="px-5 py-8 text-center text-[13px] text-muted-foreground">No orders to pack right now</p>
           ) : (
             <div className="divide-y divide-border">
@@ -243,7 +229,9 @@ export default function WarehouseDashboard() {
             </div>
           </CardHeader>
           <CardContent className="px-0 pb-0">
-            {bulkOrders.length === 0 ? (
+            {loading ? (
+              <p className="px-5 py-6 text-center text-[13px] text-muted-foreground animate-pulse">Loading…</p>
+            ) : bulkOrders.length === 0 ? (
               <p className="px-5 py-6 text-center text-[13px] text-muted-foreground">No active bulk orders</p>
             ) : (
               <div className="divide-y divide-border">
@@ -272,7 +260,9 @@ export default function WarehouseDashboard() {
             </div>
           </CardHeader>
           <CardContent className="px-0 pb-0">
-            {lowStock.length === 0 ? (
+            {loading ? (
+              <p className="px-5 py-6 text-center text-[13px] text-muted-foreground animate-pulse">Loading…</p>
+            ) : lowStock.length === 0 ? (
               <p className="px-5 py-6 text-center text-[13px] text-muted-foreground">All stock levels look good</p>
             ) : (
               <div className="divide-y divide-border">

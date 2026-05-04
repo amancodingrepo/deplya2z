@@ -12,17 +12,6 @@ import { getToken } from '../../../../../lib/auth';
 import { apiOrders, apiBulkOrders, apiPackOrder, apiPackBulkOrder } from '../../../../../lib/api';
 import type { StoreOrder, BulkOrder } from '../../../../../lib/api';
 
-/* ─── Fallback mock data ─────────────────────────── */
-const MOCK_STORE: StoreOrder[] = [
-  { id: 'ORD-ST01-0001', store: 'Store 01', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Alex Johnson', created: 'Apr 12, 10:30 AM', status: 'confirmed', items: [{ id: '1', product_id: '1', sku: 'SKU-TV-001', name: 'Samsung TV', qty: 5 }, { id: '2', product_id: '2', sku: 'SKU-MON-001', name: 'LG Monitor', qty: 3 }] },
-  { id: 'ORD-ST02-0002', store: 'Store 02', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Alex Johnson', created: 'Apr 12, 9:15 AM', status: 'confirmed', items: [{ id: '3', product_id: '3', sku: 'SKU-FRG-003', name: 'LG Fridge', qty: 2 }] },
-  { id: 'ORD-ST03-0006', store: 'Store 03', store_id: '', warehouse: 'WH01', warehouse_id: '', by: 'Alex Johnson', created: 'Apr 11, 11:00 AM', status: 'confirmed', items: [{ id: '4', product_id: '4', sku: 'SKU-AUD-004', name: 'Sony Headphones', qty: 10 }] },
-];
-const MOCK_BULK: BulkOrder[] = [
-  { id: 'BULK-0001', client_id: '', client_name: 'Metro Retail Chain', warehouse_id: '', warehouse: 'WH01', status: 'confirmed', items: [{ id: 'b1', product_id: '1', sku: 'SKU-TV-001', name: '50× Samsung TV', qty: 50 }], created_at: 'Apr 12, 9:00 AM', updated_at: '' },
-  { id: 'BULK-0002', client_id: '', client_name: 'TechMart India', warehouse_id: '', warehouse: 'WH01', status: 'confirmed', items: [{ id: 'b2', product_id: '5', sku: 'SKU-PHN-012', name: '200× iPhone 15', qty: 200 }], created_at: 'Apr 11, 3:00 PM', updated_at: '' },
-];
-
 type TabValue = 'store' | 'bulk';
 type ModalState = { orderId: string; type: 'store' | 'bulk' } | null;
 
@@ -31,8 +20,8 @@ export default function PendingOrdersPage() {
   const [modal, setModal] = useState<ModalState>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const [storeOrders, setStoreOrders] = useState<StoreOrder[]>(MOCK_STORE);
-  const [bulkOrders, setBulkOrders] = useState<BulkOrder[]>(MOCK_BULK);
+  const [storeOrders, setStoreOrders] = useState<StoreOrder[]>([]);
+  const [bulkOrders, setBulkOrders] = useState<BulkOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadOrders = useCallback(async () => {
@@ -44,8 +33,8 @@ export default function PendingOrdersPage() {
         apiOrders(token, { status: 'confirmed', limit: 100 }),
         apiBulkOrders(token, { status: 'confirmed', limit: 50 }),
       ]);
-      if (store.status === 'fulfilled') setStoreOrders(store.value.data.length > 0 ? store.value.data : MOCK_STORE);
-      if (bulk.status === 'fulfilled') setBulkOrders(bulk.value.data.length > 0 ? bulk.value.data : MOCK_BULK);
+      if (store.status === 'fulfilled') setStoreOrders(store.value.data);
+      if (bulk.status === 'fulfilled') setBulkOrders(bulk.value.data);
     } finally {
       setLoading(false);
     }
@@ -81,7 +70,7 @@ export default function PendingOrdersPage() {
             {loading && <span className="ml-1 text-[11px] animate-pulse">· Loading…</span>}
           </p>
         </div>
-        <Badge variant="warning" dot>{storeOrders.length} to pack</Badge>
+        {storeOrders.length > 0 && <Badge variant="warning" dot>{storeOrders.length} to pack</Badge>}
       </div>
 
       {/* Tabs */}
@@ -109,7 +98,9 @@ export default function PendingOrdersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {storeOrders.length === 0 ? (
+              {loading ? (
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-[13px] text-muted-foreground animate-pulse">Loading…</td></tr>
+              ) : storeOrders.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-10 text-center text-[13px] text-muted-foreground">No orders to pack</td></tr>
               ) : storeOrders.map((o) => {
                 const totalQty = o.items.reduce((s, i) => s + i.qty, 0);
@@ -153,7 +144,9 @@ export default function PendingOrdersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {bulkOrders.length === 0 ? (
+              {loading ? (
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-[13px] text-muted-foreground animate-pulse">Loading…</td></tr>
+              ) : bulkOrders.length === 0 ? (
                 <tr><td colSpan={6} className="px-4 py-10 text-center text-[13px] text-muted-foreground">No bulk orders to pack</td></tr>
               ) : bulkOrders.map((o) => {
                 const totalQty = o.items.reduce((s, i) => s + i.qty, 0);

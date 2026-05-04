@@ -11,33 +11,49 @@ import {
   BoxIcon, ClipboardIcon, TruckIcon, ExclamationIcon,
 } from '../../../components/layout/icons';
 import { getToken } from '../../../lib/auth';
-import { apiDashboard, apiApproveOrder, apiRejectOrder } from '../../../lib/api';
+import { apiDashboard, apiOrders, apiInventoryLowStock, apiAuditLog, apiApproveOrder, apiRejectOrder } from '../../../lib/api';
+import type { StoreOrder, LowStockAlert } from '../../../lib/api';
 
-/* ─── Mock data ─────────────────────────────────── */
-const pendingApprovals = [
-  { id: 'ORD-ST01-0001', store: 'Store 01', warehouse: 'WH01', items: '5× Samsung TV, 3× LG Monitor', units: 8, time: '10 min ago', by: 'Priya Sharma' },
-  { id: 'ORD-ST03-0004', store: 'Store 03', warehouse: 'WH01', items: '1× MacBook Pro, 2× iPhone 15', units: 3, time: '25 min ago', by: 'Meera Das' },
-  { id: 'ORD-ST02-0007', store: 'Store 02', warehouse: 'WH01', items: '12× Sony Headphones', units: 12, time: '1 hr ago', by: 'Raj Patel' },
-  { id: 'ORD-ST04-0009', store: 'Store 04', warehouse: 'WH02', items: '6× LG Fridge', units: 6, time: '2 hr ago', by: 'Anita Roy' },
-  { id: 'ORD-ST02-0012', store: 'Store 02', warehouse: 'WH01', items: '4× Dell XPS 15', units: 4, time: '3 hr ago', by: 'Raj Patel' },
-];
+/* ─── Relative time helper ───────────────────────── */
+const timeAgo = (d: string) => {
+  const diff = Date.now() - new Date(d).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+};
 
-const lowStock = [
-  { sku: 'SKU-TV-001', name: 'Samsung 55" TV', warehouse: 'WH01', available: 2, threshold: 5 },
-  { sku: 'SKU-FRG-003', name: 'LG Fridge 23cu', warehouse: 'WH01', available: 1, threshold: 5 },
-  { sku: 'SKU-LAP-007', name: 'Dell XPS 15', warehouse: 'WH02', available: 3, threshold: 8 },
-  { sku: 'SKU-PHN-012', name: 'iPhone 15 Pro', warehouse: 'WH01', available: 0, threshold: 10 },
-];
+/* ─── Types ──────────────────────────────────────── */
+interface PendingApproval {
+  id: string;
+  store: string;
+  warehouse: string;
+  items: string;
+  units: number;
+  time: string;
+  by: string;
+}
 
-const recentActivity = [
-  { id: 'A1', actor: 'Priya Sharma', initials: 'PS', role: 'Store Mgr', action: 'Submitted order request', entity: 'ORD-ST01-0001', time: '3 min ago', type: 'order' },
-  { id: 'A2', actor: 'Sam Park', initials: 'SP', role: 'WH Mgr', action: 'Marked order dispatched', entity: 'ORD-ST02-0002', time: '12 min ago', type: 'dispatch' },
-  { id: 'A3', actor: 'Alex Johnson', initials: 'AJ', role: 'Superadmin', action: 'Approved order', entity: 'ORD-ST03-0006', time: '35 min ago', type: 'approve' },
-  { id: 'A4', actor: 'Sam Park', initials: 'SP', role: 'WH Mgr', action: 'Packed order', entity: 'ORD-ST01-0005', time: '1 hr ago', type: 'pack' },
-  { id: 'A5', actor: 'Meera Das', initials: 'MD', role: 'Store Mgr', action: 'Confirmed receipt', entity: 'ORD-ST03-0003', time: '2 hr ago', type: 'receive' },
-  { id: 'A6', actor: 'Alex Johnson', initials: 'AJ', role: 'Superadmin', action: 'Stock adjusted +10 units', entity: 'Samsung 55" TV', time: '3 hr ago', type: 'stock' },
-  { id: 'A7', actor: 'Alex Johnson', initials: 'AJ', role: 'Superadmin', action: 'New user created', entity: 'Anita Roy (ST04)', time: '5 hr ago', type: 'user' },
-];
+interface LowStockItem {
+  sku: string;
+  name: string;
+  warehouse: string;
+  available: number;
+  threshold: number;
+}
+
+interface ActivityItem {
+  id: string;
+  actor: string;
+  initials: string;
+  role: string;
+  action: string;
+  entity: string;
+  time: string;
+  type: string;
+}
 
 /* ─── Components ─────────────────────────────────── */
 function KPICard({ label, value, sub, icon, accent, href }: {
@@ -71,43 +87,117 @@ function ActivityDot({ type }: { type: string }) {
 
 export default function SuperadminDashboard() {
   const [approvingId, setApprovingId] = useState<string | null>(null);
-  const approving = pendingApprovals.find(o => o.id === approvingId);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   const [dashData, setDashData] = useState<Record<string, unknown> | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
+  const [lowStock, setLowStock] = useState<LowStockItem[]>([]);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const approving = pendingApprovals.find(o => o.id === approvingId);
+
   useEffect(() => {
     const token = getToken();
-    if (!token) return;
+    if (!token) { setLoading(false); return; }
     let cancelled = false;
-    apiDashboard(token)
-      .then(r => { if (!cancelled) setDashData(r.data); })
-      .catch(() => {/* keep mock data on error */});
+
+    Promise.allSettled([
+      apiDashboard(token),
+      apiOrders(token, { status: 'confirmed', limit: 5 }),
+      apiInventoryLowStock(token),
+      apiAuditLog(token, { limit: 7 }),
+    ]).then(([dash, orders, ls, audit]) => {
+      if (cancelled) return;
+
+      if (dash.status === 'fulfilled') {
+        setDashData(dash.value.data);
+      }
+
+      if (orders.status === 'fulfilled') {
+        const mapped: PendingApproval[] = orders.value.data.map((o: StoreOrder) => ({
+          id: o.id,
+          store: o.store,
+          warehouse: o.warehouse,
+          items: o.items.map(i => `${i.qty}× ${i.name}`).join(', '),
+          units: o.items.reduce((s, i) => s + i.qty, 0),
+          time: timeAgo(o.created),
+          by: o.by,
+        }));
+        setPendingApprovals(mapped);
+      }
+
+      if (ls.status === 'fulfilled') {
+        const mapped: LowStockItem[] = ls.value.data.map((item: LowStockAlert) => ({
+          sku: item.sku,
+          name: item.product_title,
+          warehouse: item.location_code,
+          available: item.available,
+          threshold: item.threshold,
+        }));
+        setLowStock(mapped);
+      }
+
+      if (audit.status === 'fulfilled') {
+        const mapped: ActivityItem[] = audit.value.data.map((row: Record<string, unknown>) => {
+          const actorName = String(row.actor_name ?? '');
+          const initials = actorName
+            .split(' ')
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((n: string) => n[0].toUpperCase())
+            .join('');
+          const action = String(row.action ?? '');
+          const type = action.includes('dispatch') ? 'dispatch'
+            : action.includes('approve') ? 'approve'
+            : action.includes('receive') ? 'receive'
+            : action.includes('stock') ? 'stock'
+            : 'order';
+          return {
+            id: String(row.id ?? ''),
+            actor: actorName,
+            initials,
+            role: String(row.actor_role ?? ''),
+            action,
+            entity: String(row.entity_id ?? ''),
+            time: row.created_at ? timeAgo(String(row.created_at)) : '—',
+            type,
+          };
+        });
+        setRecentActivity(mapped);
+      }
+
+      setLoading(false);
+    });
+
     return () => { cancelled = true; };
   }, [refreshKey]);
 
   const kpi = dashData?.kpi as Record<string, number> | undefined;
   const pendingApprovalsCount = kpi?.pending_approvals ?? pendingApprovals.length;
   const lowStockCount = kpi?.low_stock_items ?? lowStock.length;
-  const dispatchedToday = kpi?.dispatched_today ?? 7;
-  const activeStores = kpi?.active_stores ?? 5;
+  const dispatchedToday = kpi?.dispatched_today ?? 0;
+  const activeStores = kpi?.active_stores ?? 0;
 
   return (
     <div className="flex flex-col gap-6">
       {/* Greeting */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-[22px] font-bold text-foreground">{greeting}, Alex 👋</h1>
+          <h1 className="text-[22px] font-bold text-foreground">{greeting} 👋</h1>
           <p className="mt-0.5 text-[13px] text-muted-foreground">
             {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1.5 text-[12px] font-semibold text-destructive">
-          <span className="size-1.5 rounded-full bg-destructive animate-pulse" />
-          {pendingApprovalsCount} items need attention
-        </span>
+        {pendingApprovalsCount > 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-3 py-1.5 text-[12px] font-semibold text-destructive">
+            <span className="size-1.5 rounded-full bg-destructive animate-pulse" />
+            {pendingApprovalsCount} items need attention
+          </span>
+        )}
       </div>
 
       {/* KPI cards */}
@@ -127,43 +217,49 @@ export default function SuperadminDashboard() {
           </div>
         </CardHeader>
         <CardContent className="px-0 pb-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-border">
-                  {['Order ID', 'Store', 'Items', 'Time', ''].map(h => (
-                    <th key={h} className={`px-5 pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === '' ? 'text-right' : 'text-left'} ${h === 'Items' ? 'hidden md:table-cell' : ''}`}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pendingApprovals.map((o, i) => (
-                  <tr key={o.id} className={`border-b border-border last:border-0 hover:bg-surface-raised transition-colors ${i < 2 ? 'bg-primary-subtle/40' : ''}`}>
-                    <td className="px-5 py-3">
-                      <p className="font-mono font-semibold text-foreground text-[12px]">{o.id}</p>
-                      <p className="text-[11px] text-muted-foreground">{o.by}</p>
-                    </td>
-                    <td className="px-5 py-3 text-muted-foreground">{o.store}</td>
-                    <td className="px-5 py-3 text-muted-foreground hidden md:table-cell max-w-[200px]">
-                      <p className="truncate">{o.items}</p>
-                      <p className="text-[11px]">{o.units} units</p>
-                    </td>
-                    <td className="px-5 py-3 text-muted-foreground whitespace-nowrap">{o.time}</td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button size="sm" className="h-7 px-3 text-[11px]" onClick={() => setApprovingId(o.id)}>
-                          Approve
-                        </Button>
-                        <Link href="/orders/store-orders">
-                          <Button size="sm" variant="outline" className="h-7 px-3 text-[11px]">View</Button>
-                        </Link>
-                      </div>
-                    </td>
+          {loading ? (
+            <p className="px-5 py-8 text-center text-[13px] text-muted-foreground animate-pulse">Loading…</p>
+          ) : pendingApprovals.length === 0 ? (
+            <p className="px-5 py-8 text-center text-[13px] text-muted-foreground">No orders awaiting approval</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    {['Order ID', 'Store', 'Items', 'Time', ''].map(h => (
+                      <th key={h} className={`px-5 pb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground ${h === '' ? 'text-right' : 'text-left'} ${h === 'Items' ? 'hidden md:table-cell' : ''}`}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {pendingApprovals.map((o, i) => (
+                    <tr key={o.id} className={`border-b border-border last:border-0 hover:bg-surface-raised transition-colors ${i < 2 ? 'bg-primary-subtle/40' : ''}`}>
+                      <td className="px-5 py-3">
+                        <p className="font-mono font-semibold text-foreground text-[12px]">{o.id}</p>
+                        <p className="text-[11px] text-muted-foreground">{o.by}</p>
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{o.store}</td>
+                      <td className="px-5 py-3 text-muted-foreground hidden md:table-cell max-w-[200px]">
+                        <p className="truncate">{o.items}</p>
+                        <p className="text-[11px]">{o.units} units</p>
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground whitespace-nowrap">{o.time}</td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button size="sm" className="h-7 px-3 text-[11px]" onClick={() => setApprovingId(o.id)}>
+                            Approve
+                          </Button>
+                          <Link href="/orders/store-orders">
+                            <Button size="sm" variant="outline" className="h-7 px-3 text-[11px]">View</Button>
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -189,53 +285,65 @@ export default function SuperadminDashboard() {
             </div>
           </CardHeader>
           <CardContent className="px-0 pb-0">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="px-5 pb-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Product</th>
-                  <th className="px-3 pb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Available</th>
-                  <th className="px-3 pb-2 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lowStock.map((item) => (
-                  <tr key={item.sku} className="border-b border-border last:border-0 hover:bg-surface-raised">
-                    <td className="px-5 py-3">
-                      <p className="font-medium text-foreground">{item.name}</p>
-                      <p className="text-[11px] font-mono text-muted-foreground">{item.sku} · {item.warehouse}</p>
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <span className={`font-bold tabular-nums text-[14px] ${item.available === 0 ? 'text-destructive' : 'text-warning'}`}>{item.available}</span>
-                      <span className="text-[11px] text-muted-foreground">/{item.threshold}</span>
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <Link href="/inventory"><Button size="sm" variant="outline" className="h-7 px-2 text-[11px]">Adjust</Button></Link>
-                    </td>
+            {loading ? (
+              <p className="px-5 py-6 text-center text-[13px] text-muted-foreground animate-pulse">Loading…</p>
+            ) : lowStock.length === 0 ? (
+              <p className="px-5 py-6 text-center text-[13px] text-muted-foreground">All stock levels look good</p>
+            ) : (
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="px-5 pb-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Product</th>
+                    <th className="px-3 pb-2 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Available</th>
+                    <th className="px-3 pb-2 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {lowStock.map((item) => (
+                    <tr key={item.sku} className="border-b border-border last:border-0 hover:bg-surface-raised">
+                      <td className="px-5 py-3">
+                        <p className="font-medium text-foreground">{item.name}</p>
+                        <p className="text-[11px] font-mono text-muted-foreground">{item.sku} · {item.warehouse}</p>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <span className={`font-bold tabular-nums text-[14px] ${item.available === 0 ? 'text-destructive' : 'text-warning'}`}>{item.available}</span>
+                        <span className="text-[11px] text-muted-foreground">/{item.threshold}</span>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <Link href="/inventory"><Button size="sm" variant="outline" className="h-7 px-2 text-[11px]">Adjust</Button></Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader><CardTitle>Recent Activity</CardTitle></CardHeader>
           <CardContent>
-            <ol className="space-y-3">
-              {recentActivity.map((a) => (
-                <li key={a.id} className="flex items-start gap-3">
-                  <ActivityDot type={a.type} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] text-foreground leading-snug">
-                      <span className="font-semibold">{a.actor}</span>
-                      {' '}<span className="text-muted-foreground">{a.action}</span>
-                      {' '}<span className="font-mono text-[12px] text-primary">{a.entity}</span>
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">{a.role} · {a.time}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            {loading ? (
+              <p className="text-center text-[13px] text-muted-foreground animate-pulse">Loading…</p>
+            ) : recentActivity.length === 0 ? (
+              <p className="text-center text-[13px] text-muted-foreground">No recent activity</p>
+            ) : (
+              <ol className="space-y-3">
+                {recentActivity.map((a) => (
+                  <li key={a.id} className="flex items-start gap-3">
+                    <ActivityDot type={a.type} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] text-foreground leading-snug">
+                        <span className="font-semibold">{a.actor}</span>
+                        {' '}<span className="text-muted-foreground">{a.action}</span>
+                        {' '}<span className="font-mono text-[12px] text-primary">{a.entity}</span>
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">{a.role} · {a.time}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
           </CardContent>
         </Card>
       </div>

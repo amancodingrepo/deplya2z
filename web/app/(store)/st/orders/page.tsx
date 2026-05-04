@@ -13,15 +13,6 @@ import { getToken, getUser } from '../../../../lib/auth';
 import { apiOrders, apiConfirmReceive, apiCancelOrder } from '../../../../lib/api';
 import type { StoreOrder } from '../../../../lib/api';
 
-/* ─── Fallback mock data ─────────────────────────── */
-const MOCK_ORDERS: StoreOrder[] = [
-  { id: 'ORD-ST01-0001', store: 'ST01', store_id: '', warehouse: 'WH01', warehouse_id: '', by: '', created: 'Apr 12, 10:30 AM', status: 'dispatched', items: [] },
-  { id: 'ORD-ST01-0008', store: 'ST01', store_id: '', warehouse: 'WH01', warehouse_id: '', by: '', created: 'Apr 12, 8:00 AM', status: 'confirmed', items: [] },
-  { id: 'ORD-ST01-0009', store: 'ST01', store_id: '', warehouse: 'WH01', warehouse_id: '', by: '', created: 'Apr 11, 5:00 PM', status: 'packed', items: [] },
-  { id: 'ORD-ST01-0010', store: 'ST01', store_id: '', warehouse: 'WH01', warehouse_id: '', by: '', created: 'Apr 11, 3:00 PM', status: 'draft', items: [] },
-  { id: 'ORD-ST01-0005', store: 'ST01', store_id: '', warehouse: 'WH01', warehouse_id: '', by: '', created: 'Apr 10, 2:00 PM', status: 'completed', items: [] },
-];
-
 const statusLabels: Record<string, string> = {
   draft: 'Awaiting Approval', confirmed: 'Confirmed', packed: 'Being Packed',
   dispatched: 'On the Way', store_received: 'Received', completed: 'Completed', cancelled: 'Cancelled',
@@ -38,7 +29,7 @@ export default function MyOrdersPage() {
   const [modal, setModal] = useState<ModalState>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const [orders, setOrders] = useState<StoreOrder[]>(MOCK_ORDERS);
+  const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadOrders = useCallback(async () => {
@@ -47,8 +38,8 @@ export default function MyOrdersPage() {
     setLoading(true);
     try {
       const r = await apiOrders(token, { limit: 100 });
-      if (r.data.length > 0) setOrders(r.data);
-    } catch { /* keep mock data */ } finally { setLoading(false); }
+      setOrders(r.data);
+    } catch { /* keep existing data */ } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadOrders(); }, [loadOrders, refreshKey]);
@@ -127,53 +118,59 @@ export default function MyOrdersPage() {
       />
 
       <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Order ID</TableHead>
-              <TableHead>Items</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.length === 0 ? (
-              <TableEmpty colSpan={5}>
-                No orders yet.{' '}
-                <Link href="/st/orders/create" className="text-primary hover:underline">
-                  Create your first request
-                </Link>
-              </TableEmpty>
-            ) : (
-              filtered.map((o) => (
-                <TableRow key={o.id}>
-                  <TableCell className="font-mono text-[12px] font-medium text-foreground">{o.id}</TableCell>
-                  <TableCell className="text-muted-foreground max-w-[240px] truncate">{summaryText(o)}</TableCell>
-                  <TableCell>
-                    <Badge variant={statusToBadgeVariant(o.status)} dot>{statusLabels[o.status]}</Badge>
-                  </TableCell>
-                  <TableCell className="text-[12px] text-muted-foreground whitespace-nowrap">{o.created}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1.5">
-                      {o.status === 'dispatched' && (
-                        <Button size="sm" onClick={() => setModal({ type: 'receive', order: o })}>
-                          Confirm Receipt
-                        </Button>
-                      )}
-                      {o.status === 'draft' && (
-                        <Button size="sm" variant="outline" onClick={() => setModal({ type: 'cancel', order: o })}>
-                          Cancel
-                        </Button>
-                      )}
-                      <Button size="sm" variant="ghost">Details</Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="size-6 animate-spin rounded-full border-2 border-border border-t-primary" />
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Order ID</TableHead>
+                <TableHead>Items</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length === 0 ? (
+                <TableEmpty colSpan={5}>
+                  No orders yet.{' '}
+                  <Link href="/st/orders/create" className="text-primary hover:underline">
+                    Create your first request
+                  </Link>
+                </TableEmpty>
+              ) : (
+                filtered.map((o) => (
+                  <TableRow key={o.id}>
+                    <TableCell className="font-mono text-[12px] font-medium text-foreground">{o.id}</TableCell>
+                    <TableCell className="text-muted-foreground max-w-[240px] truncate">{summaryText(o)}</TableCell>
+                    <TableCell>
+                      <Badge variant={statusToBadgeVariant(o.status)} dot>{statusLabels[o.status]}</Badge>
+                    </TableCell>
+                    <TableCell className="text-[12px] text-muted-foreground whitespace-nowrap">{o.created}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1.5">
+                        {o.status === 'dispatched' && (
+                          <Button size="sm" onClick={() => setModal({ type: 'receive', order: o })}>
+                            Confirm Receipt
+                          </Button>
+                        )}
+                        {o.status === 'draft' && (
+                          <Button size="sm" variant="outline" onClick={() => setModal({ type: 'cancel', order: o })}>
+                            Cancel
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost">Details</Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        )}
       </Card>
 
       <div className="text-[12px] text-muted-foreground">

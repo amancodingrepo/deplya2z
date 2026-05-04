@@ -1,18 +1,29 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Card } from '../../../components/ui/card';
 import { Badge, statusToBadgeVariant } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell, TableEmpty } from '../../../components/ui/table';
 import { PlusIcon, SearchIcon } from '../../../components/layout/icons';
-
-const clients = [
-  { id: '1', name: 'TechMart Retail', owner: 'Arun Mehta', email: 'arun@techmart.com', phone: '+91 98001 11222', orders: 12, status: 'active' },
-  { id: '2', name: 'ElectroHub', owner: 'Sunil Verma', email: 'sunil@electrohub.com', phone: '+91 99001 22333', orders: 8, status: 'active' },
-  { id: '3', name: 'GadgetWorld', owner: 'Naina Singh', email: 'naina@gadgetworld.com', phone: '+91 97001 33444', orders: 5, status: 'active' },
-  { id: '4', name: 'Digital Bazaar', owner: null, email: 'info@digitalbazaar.in', phone: '+91 96001 44555', orders: 0, status: 'inactive' },
-];
+import { getToken } from '../../../lib/auth';
+import { apiClients } from '../../../lib/api';
+import type { ClientStore } from '../../../lib/api';
 
 export default function ClientsPage() {
+  const [clients, setClients] = useState<ClientStore[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { setLoading(false); return; }
+    apiClients(token)
+      .then(r => setClients(r.data))
+      .catch(() => {/* keep empty list on error */})
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -40,40 +51,44 @@ export default function ClientsPage() {
       </div>
 
       <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Client</TableHead>
-              <TableHead>Owner</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead className="text-right">Orders</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {clients.length === 0 ? (
-              <TableEmpty colSpan={7}>No clients found.</TableEmpty>
-            ) : (
-              clients.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className="font-semibold">{c.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{c.owner ?? '—'}</TableCell>
-                  <TableCell className="text-muted-foreground">{c.email}</TableCell>
-                  <TableCell className="text-muted-foreground">{c.phone}</TableCell>
-                  <TableCell className="text-right tabular-nums">{c.orders}</TableCell>
-                  <TableCell><Badge variant={statusToBadgeVariant(c.status)} dot>{c.status.charAt(0).toUpperCase() + c.status.slice(1)}</Badge></TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <a href={`/clients/${c.id}/edit`} className="text-xs font-medium text-primary hover:underline">Edit</a>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="size-6 animate-spin rounded-full border-2 border-border border-t-primary" />
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Client</TableHead>
+                <TableHead>Contact</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {clients.length === 0 ? (
+                <TableEmpty colSpan={6}>No clients found.</TableEmpty>
+              ) : (
+                clients.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-semibold">{c.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{c.contact_name ?? '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{c.contact_email}</TableCell>
+                    <TableCell className="text-muted-foreground">{c.contact_phone ?? '—'}</TableCell>
+                    <TableCell><Badge variant={statusToBadgeVariant(c.status)} dot>{c.status.charAt(0).toUpperCase() + c.status.slice(1)}</Badge></TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <a href={`/clients/${c.id}/edit`} className="text-xs font-medium text-primary hover:underline">Edit</a>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        )}
       </Card>
     </div>
   );

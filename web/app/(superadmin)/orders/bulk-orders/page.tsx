@@ -1,22 +1,34 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import { PageHeader } from '../../../../components/ui/page-header';
 import { Card } from '../../../../components/ui/card';
 import { Badge, statusToBadgeVariant } from '../../../../components/ui/badge';
 import { Button } from '../../../../components/ui/button';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell, TableEmpty } from '../../../../components/ui/table';
 import { PlusIcon, SearchIcon } from '../../../../components/layout/icons';
-
-const bulkOrders = [
-  { id: 'BULK-WH01-20260412-0007', client: 'TechMart Retail', warehouse: 'WH01', items: '20× Samsung TV', status: 'confirmed', created: 'Apr 12, 8:00 AM' },
-  { id: 'BULK-WH01-20260411-0005', client: 'ElectroHub', warehouse: 'WH01', items: '50× LG Monitor, 10× Dell XPS', status: 'packed', created: 'Apr 11, 2:00 PM' },
-  { id: 'BULK-WH01-20260410-0003', client: 'GadgetWorld', warehouse: 'WH01', items: '30× iPhone 15', status: 'dispatched', created: 'Apr 10, 10:00 AM' },
-  { id: 'BULK-WH01-20260409-0001', client: 'TechMart Retail', warehouse: 'WH01', items: '15× Sony Headphones', status: 'completed', created: 'Apr 9, 9:00 AM' },
-];
+import { getToken } from '../../../../lib/auth';
+import { apiBulkOrders } from '../../../../lib/api';
+import type { BulkOrder } from '../../../../lib/api';
 
 const statusLabels: Record<string, string> = {
-  confirmed: 'Confirmed', packed: 'Packed', dispatched: 'Dispatched', completed: 'Completed', cancelled: 'Cancelled',
+  draft: 'Draft', confirmed: 'Confirmed', packed: 'Packed',
+  dispatched: 'Dispatched', completed: 'Completed', cancelled: 'Cancelled',
 };
 
 export default function BulkOrdersPage() {
+  const [bulkOrders, setBulkOrders] = useState<BulkOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { setLoading(false); return; }
+    apiBulkOrders(token)
+      .then(r => setBulkOrders(r.data))
+      .catch(() => {/* keep empty list on error */})
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -45,42 +57,50 @@ export default function BulkOrdersPage() {
       </div>
 
       <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Order ID</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Warehouse</TableHead>
-              <TableHead>Items</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {bulkOrders.length === 0 ? (
-              <TableEmpty colSpan={7}>No bulk orders yet.</TableEmpty>
-            ) : (
-              bulkOrders.map((o) => (
-                <TableRow key={o.id}>
-                  <TableCell className="font-mono text-xs font-medium">{o.id}</TableCell>
-                  <TableCell className="font-medium">{o.client}</TableCell>
-                  <TableCell>{o.warehouse}</TableCell>
-                  <TableCell className="text-muted-foreground">{o.items}</TableCell>
-                  <TableCell>
-                    <Badge variant={statusToBadgeVariant(o.status)} dot>
-                      {statusLabels[o.status]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-xs">{o.created}</TableCell>
-                  <TableCell className="text-right">
-                    <Button size="sm" variant="ghost">View</Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="size-6 animate-spin rounded-full border-2 border-border border-t-primary" />
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Order ID</TableHead>
+                <TableHead>Client</TableHead>
+                <TableHead>Warehouse</TableHead>
+                <TableHead>Items</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {bulkOrders.length === 0 ? (
+                <TableEmpty colSpan={7}>No bulk orders yet.</TableEmpty>
+              ) : (
+                bulkOrders.map((o) => (
+                  <TableRow key={o.id}>
+                    <TableCell className="font-mono text-xs font-medium">{o.id}</TableCell>
+                    <TableCell className="font-medium">{o.client_name}</TableCell>
+                    <TableCell>{o.warehouse}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {o.items.map(i => `${i.qty}× ${i.name}`).join(', ')}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={statusToBadgeVariant(o.status)} dot>
+                        {statusLabels[o.status] ?? o.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{o.created_at}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="ghost">View</Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        )}
       </Card>
     </div>
   );
