@@ -20,23 +20,22 @@ class MockApi {
   final _uuid = const Uuid();
   final Dio _dio;
 
-  // Production builds must pass --dart-define=API_BASE_URL=https://your-api.com/v1
   static String _resolveBaseUrl() {
-    final configured = const String.fromEnvironment(
+    // Hardcoded production API URL
+    const productionUrl = 'http://69.62.84.211:8080/v1';
+
+    // Allow override via dart-define for local dev
+    const configured = String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://localhost:8080/v1',
+      defaultValue: productionUrl,
     );
 
-    if (kIsWeb) {
-      return configured;
-    }
+    if (kIsWeb) return configured;
 
     final uri = Uri.tryParse(configured);
-    if (uri == null) {
-      return configured;
-    }
+    if (uri == null) return configured;
 
-    // Android emulator cannot reach host machine through localhost.
+    // Android emulator: remap localhost → 10.0.2.2
     if (Platform.isAndroid && uri.host == 'localhost') {
       return uri.replace(host: '10.0.2.2').toString();
     }
