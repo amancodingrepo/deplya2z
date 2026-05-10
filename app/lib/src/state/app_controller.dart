@@ -116,7 +116,10 @@ class AppController extends StateNotifier<AppState> {
       state = state.copyWith(session: session, loading: false);
       await refreshData();
     } catch (error) {
-      state = state.copyWith(loading: false, message: error.toString());
+      // Strip the leading "Exception: " prefix that Dart adds when rethrowing
+      final raw = error.toString();
+      final message = raw.startsWith('Exception: ') ? raw.substring(11) : raw;
+      state = state.copyWith(loading: false, message: message);
     }
   }
 

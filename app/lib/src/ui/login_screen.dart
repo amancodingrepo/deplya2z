@@ -16,9 +16,9 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen>
     with SingleTickerProviderStateMixin {
   final _emailController = TextEditingController(
-    text: 'warehouse@storewarehouse.com',
+    text: 'warehouse@yourcompany.com',
   );
-  final _passwordController = TextEditingController(text: 'password123');
+  final _passwordController = TextEditingController(text: 'Warehouse@123');
   UserRole _selectedRole = UserRole.warehouseManager;
   bool _obscurePassword = true;
 
@@ -304,7 +304,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                       const SizedBox(height: 16),
 
                       Text(
-                        'Use admin@, warehouse@, or store1@storewarehouse.com',
+                        'admin@ · warehouse@ · store@yourcompany.com',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 11,

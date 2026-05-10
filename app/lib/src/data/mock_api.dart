@@ -8,14 +8,39 @@ import 'package:uuid/uuid.dart';
 import '../core/models.dart';
 
 class MockApi {
-  MockApi()
-    : _dio = Dio(
-        BaseOptions(
-          baseUrl: _resolveBaseUrl(),
-          connectTimeout: const Duration(seconds: 8),
-          receiveTimeout: const Duration(seconds: 8),
+  MockApi() : _dio = _buildDio() {
+    // In debug mode, log every request/response to the console for easier debugging
+    if (kDebugMode) {
+      _dio.interceptors.add(
+        LogInterceptor(
+          requestHeader: false,
+          requestBody: true,
+          responseHeader: false,
+          responseBody: true,
+          error: true,
+          logPrint: (o) => debugPrint('[API] $o'),
         ),
       );
+    }
+  }
+
+  static Dio _buildDio() {
+    final baseUrl = _resolveBaseUrl();
+    debugPrint('[API] Base URL: $baseUrl');
+    return Dio(
+      BaseOptions(
+        baseUrl: baseUrl,
+        // Physical devices on mobile networks need more headroom than emulators
+        connectTimeout: const Duration(seconds: 20),
+        receiveTimeout: const Duration(seconds: 30),
+        sendTimeout: const Duration(seconds: 20),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ),
+    );
+  }
 
   final _uuid = const Uuid();
   final Dio _dio;
@@ -45,15 +70,70 @@ class MockApi {
 
   String _errorMessage(Object error) {
     if (error is DioException) {
+      // Always prefer the server's own error message / code first
       final data = error.response?.data;
-      if (data is Map && data['message'] is String) {
-        return data['message'] as String;
+      if (data is Map) {
+        if (data['message'] is String && (data['message'] as String).isNotEmpty) {
+          return data['message'] as String;
+        }
+        if (data['error'] is String && (data['error'] as String).isNotEmpty) {
+          return data['error'] as String;
+        }
+        if (data['code'] is String && (data['code'] as String).isNotEmpty) {
+          return data['code'] as String;
+        }
       }
-      if (data is Map && data['code'] is String) {
-        return data['code'] as String;
-      }
-      if (error.message != null && error.message!.trim().isNotEmpty) {
-        return error.message!;
+
+      // Classify network-level errors with human-readable messages
+      switch (error.type) {
+        case DioExceptionType.connectionTimeout:
+          return 'Connection timed out. Please check your internet and try again.';
+        case DioExceptionType.sendTimeout:
+          return 'Request timed out while sending. Please check your connection.';
+        case DioExceptionType.receiveTimeout:
+          return 'Server took too long to respond. Please try again.';
+        case DioExceptionType.connectionError:
+          final inner = error.error?.toString() ?? '';
+          final serverUrl = _resolveBaseUrl();
+          if (inner.contains('refused') || inner.contains('ECONNREFUSED')) {
+            return 'Server refused the connection. The service may be temporarily down.';
+          }
+          if (inner.contains('NetworkException') ||
+              inner.contains('SocketException') ||
+              inner.contains('errno = 101') ||
+              inner.contains('errno = 111')) {
+            return 'No network route to server. Check Wi-Fi/mobile data.';
+          }
+          return 'Cannot reach server ($serverUrl). Check your internet connection.';
+        case DioExceptionType.badResponse:
+          final status = error.response?.statusCode ?? 0;
+          if (status == 401) return 'Incorrect email or password.';
+          if (status == 403) return 'Access denied for your account.';
+          if (status == 404) return 'API endpoint not found. Please update the app.';
+          if (status == 429) return 'Too many attempts. Please wait a moment.';
+          if (status >= 500) return 'Server error ($status). Please try again later.';
+          final msg = error.message;
+          return (msg != null && msg.isNotEmpty) ? msg : 'Request failed (HTTP $status).';
+        case DioExceptionType.cancel:
+          return 'Request was cancelled.';
+        case DioExceptionType.unknown:
+          final innerErr = error.error?.toString() ?? '';
+          if (innerErr.contains('SocketException') ||
+              innerErr.contains('Connection refused') ||
+              innerErr.contains('Connection failed')) {
+            return 'Cannot connect to server. Ensure internet is available.';
+          }
+          if (innerErr.contains('HandshakeException') ||
+              innerErr.contains('CERTIFICATE') ||
+              innerErr.contains('ssl')) {
+            return 'SSL/TLS error connecting to server.';
+          }
+          final msg = error.message;
+          return (msg != null && msg.trim().isNotEmpty) ? msg : innerErr.isNotEmpty ? innerErr : error.toString();
+        // ignore: no_default_cases
+        default:
+          final msg = error.message;
+          return (msg != null && msg.trim().isNotEmpty) ? msg : error.toString();
       }
     }
     return error.toString();

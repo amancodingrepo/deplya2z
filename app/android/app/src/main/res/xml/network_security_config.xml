@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network Security Configuration
+  ================================
+  Explicitly permits cleartext (HTTP) traffic to the production VPS IP.
+  This is required because Android 9+ blocks cleartext traffic by default.
+  The global `usesCleartextTraffic="true"` in AndroidManifest.xml is the
+  blunt hammer; this file is the precise scalpel — both are set for
+  maximum compatibility across all Android versions.
+-->
+<network-security-config>
+
+    <!-- Allow HTTP to our production VPS -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">69.62.84.211</domain>
+    </domain-config>
+
+    <!--
+      Base config: also permit cleartext globally so that any future
+      IP/domain changes don't silently break the app.
+      For a fully hardened production app, remove this and only list
+      specific domains above.
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <!-- Trust the system CA store (needed for HTTPS in the future) -->
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+</network-security-config>
