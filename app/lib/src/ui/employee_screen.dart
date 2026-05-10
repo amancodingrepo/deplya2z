@@ -811,9 +811,9 @@ class _ProductsTab extends ConsumerWidget {
                 // Upload image after product is created
                 if (imageBytes != null && context.mounted) {
                   final appState = ref.read(appControllerProvider);
-                  final newProduct = appState.adminProducts.firstWhere(
+                  final newProduct = appState.products.firstWhere(
                     (p) => p.sku == skuCtrl.text.trim(),
-                    orElse: () => appState.adminProducts.last,
+                    orElse: () => appState.products.last,
                   );
                   await controller.uploadProductImage(
                     productId: newProduct.id,

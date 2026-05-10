@@ -57,7 +57,10 @@ class NotificationBell extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => ProviderScope.overrideFrom(ref, child: const _NotificationsPanel()),
+      builder: (_) => ProviderScope(
+        parent: ProviderScope.containerOf(context),
+        child: const _NotificationsPanel(),
+      ),
     );
   }
 }
