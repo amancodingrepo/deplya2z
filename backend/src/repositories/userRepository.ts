@@ -23,7 +23,7 @@ export async function findUserByEmailWithPassword(email: string) {
   const result = await pool.query(
     `select u.*, l.location_code
      from users u
-     left join locations l on l.id = u.location_id
+     left join locations l on (l.id::text = u.location_id OR l.location_code = u.location_id)
      where u.email = $1
      limit 1`,
     [email],
@@ -35,7 +35,7 @@ export async function findSessionUserById(id: string) {
   const result = await pool.query(
     `select u.*, l.location_code
      from users u
-     left join locations l on l.id = u.location_id
+     left join locations l on (l.id::text = u.location_id OR l.location_code = u.location_id)
      where u.id = $1
      limit 1`,
     [id],
@@ -102,7 +102,7 @@ export async function listEmployeeUsers(params: ListUsersParams) {
        l.location_code,
        l.name as location_name
      from users u
-     left join locations l on l.id = u.location_id
+     left join locations l on (l.id::text = u.location_id OR l.location_code = u.location_id)
      ${whereSql}
      order by u.created_at desc`,
     values,
@@ -161,7 +161,7 @@ export async function findEmployeeUserById(id: string) {
        l.location_code,
        l.name as location_name
      from users u
-     left join locations l on l.id = u.location_id
+     left join locations l on (l.id::text = u.location_id OR l.location_code = u.location_id)
      where u.id = $1
      limit 1`,
     [id],

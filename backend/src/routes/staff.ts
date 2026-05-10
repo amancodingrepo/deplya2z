@@ -27,7 +27,7 @@ const STAFF_SELECT = `
     u.name,
     u.email,
     l.name   AS location_name,
-    l.code   AS location_code
+    l.location_code AS location_code
   FROM staff_members sm
   JOIN users        u  ON u.id  = sm.user_id
   LEFT JOIN locations l ON l.id = sm.location_id
