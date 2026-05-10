@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 
-/// Glassmorphic card with subtle border and gradient background.
+/// Reusable surface card with neutral elevation and subtle border.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
@@ -30,7 +30,7 @@ class GlassCard extends StatelessWidget {
         gradient: gradient ?? AppTheme.cardGradient,
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(
-          color: AppTheme.surfaceLight.withValues(alpha: 0.5),
+          color: AppTheme.surfaceLight.withValues(alpha: 0.8),
           width: 1,
         ),
         boxShadow: AppTheme.cardShadow,
@@ -42,10 +42,7 @@ class GlassCard extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return GestureDetector(
-        onTap: onTap,
-        child: card,
-      );
+      return GestureDetector(onTap: onTap, child: card);
     }
     return card;
   }

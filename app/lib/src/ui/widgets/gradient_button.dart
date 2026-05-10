@@ -24,6 +24,7 @@ class GradientButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: InkWell(
         onTap: loading ? null : onPressed,
@@ -33,12 +34,13 @@ class GradientButton extends StatelessWidget {
             gradient: onPressed != null
                 ? (gradient ?? AppTheme.primaryGradient)
                 : null,
-            color: onPressed == null ? AppTheme.bgCardLight : null,
+            color: onPressed == null ? AppTheme.surface : null,
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+            boxShadow: onPressed != null ? AppTheme.glowShadow : null,
           ),
           padding: EdgeInsets.symmetric(
             horizontal: compact ? 16 : 24,
-            vertical: compact ? 10 : 14,
+            vertical: compact ? 10 : 15,
           ),
           child: Row(
             mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
@@ -63,9 +65,10 @@ class GradientButton extends StatelessWidget {
                   style: TextStyle(
                     color: onPressed != null
                         ? Colors.white
-                        : AppTheme.textMuted,
-                    fontWeight: FontWeight.w600,
+                        : AppTheme.textSecondary,
+                    fontWeight: FontWeight.w700,
                     fontSize: compact ? 12 : 14,
+                    letterSpacing: 0.1,
                   ),
                 ),
               ],

@@ -7,11 +7,13 @@ class LocalStore {
   static const _ordersBoxName = 'orders_box';
   static const _inventoryBoxName = 'inventory_box';
   static const _syncQueueBoxName = 'sync_queue_box';
+  static const _catalogBoxName = 'catalog_box';
 
   late Box<dynamic> _sessionBox;
   late Box<dynamic> _ordersBox;
   late Box<dynamic> _inventoryBox;
   late Box<dynamic> _syncQueueBox;
+  late Box<dynamic> _catalogBox;
 
   Future<void> init() async {
     await Hive.initFlutter();
@@ -19,6 +21,7 @@ class LocalStore {
     _ordersBox = await Hive.openBox<dynamic>(_ordersBoxName);
     _inventoryBox = await Hive.openBox<dynamic>(_inventoryBoxName);
     _syncQueueBox = await Hive.openBox<dynamic>(_syncQueueBoxName);
+    _catalogBox = await Hive.openBox<dynamic>(_catalogBoxName);
   }
 
   UserSession? readSession() {
@@ -71,6 +74,18 @@ class LocalStore {
     }
   }
 
+  InventoryCatalog readInventoryCatalog() {
+    final raw = _catalogBox.get('inventory_catalog');
+    if (raw is Map<dynamic, dynamic>) {
+      return InventoryCatalog.fromJson(raw);
+    }
+    return InventoryCatalog.empty;
+  }
+
+  Future<void> writeInventoryCatalog(InventoryCatalog catalog) async {
+    await _catalogBox.put('inventory_catalog', catalog.toJson());
+  }
+
   List<SyncAction> readQueue() {
     return _syncQueueBox.values
         .whereType<Map<dynamic, dynamic>>()
@@ -92,5 +107,6 @@ class LocalStore {
     await _ordersBox.clear();
     await _inventoryBox.clear();
     await _syncQueueBox.clear();
+    await _catalogBox.clear();
   }
 }

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 
-/// Animated metric card with icon, glow, and count.
+/// Compact dashboard metric with clear hierarchy.
 class MetricCard extends StatelessWidget {
   const MetricCard({
     super.key,
@@ -27,17 +27,14 @@ class MetricCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: AppTheme.bgCard,
+            gradient: AppTheme.cardGradient,
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-            border: Border.all(
-              color: color.withValues(alpha: 0.25),
-              width: 1,
-            ),
+            border: Border.all(color: color.withValues(alpha: 0.32), width: 1),
             boxShadow: [
               BoxShadow(
-                color: color.withValues(alpha: 0.1),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+                color: color.withValues(alpha: 0.12),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
               ),
             ],
           ),
@@ -57,10 +54,10 @@ class MetricCard extends StatelessWidget {
               Text(
                 value.toString(),
                 style: TextStyle(
-                  fontSize: 24,
+                  fontSize: 22,
                   fontWeight: FontWeight.w800,
                   color: color,
-                  letterSpacing: -0.5,
+                  letterSpacing: -0.3,
                 ),
               ),
               const SizedBox(height: 2),

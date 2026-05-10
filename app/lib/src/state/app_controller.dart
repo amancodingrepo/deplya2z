@@ -15,6 +15,7 @@ class AppController extends StateNotifier<AppState> {
   final LocalStore _store;
   final MockApi _api;
   final _uuid = const Uuid();
+  Timer? _liveRefreshTicker;
 
   String _defaultWarehouseRef() {
     for (final location in state.locations) {
@@ -25,7 +26,72 @@ class AppController extends StateNotifier<AppState> {
     return 'WH01';
   }
 
+  String _locationCodeFor(String locationRef) {
+    for (final location in state.locations) {
+      if (location.id == locationRef || location.code == locationRef) {
+        return location.code;
+      }
+    }
+    return locationRef;
+  }
+
+  String _locationNameFor(String locationRef) {
+    for (final location in state.locations) {
+      if (location.id == locationRef || location.code == locationRef) {
+        return location.name;
+      }
+    }
+    return locationRef;
+  }
+
+  InventoryCatalog _mergeInventoryCatalog({
+    Iterable<Product> products = const <Product>[],
+    Iterable<InventoryItem> inventory = const <InventoryItem>[],
+  }) {
+    return state.inventoryCatalog.merge(
+      products: products,
+      inventory: inventory,
+    );
+  }
+
+  String _buildReadableOrderId({
+    required String warehouseRef,
+    required String storeRef,
+    required DateTime now,
+  }) {
+    final datePart =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
+    final warehouseCode = _locationCodeFor(warehouseRef);
+    final storeCode = _locationCodeFor(storeRef);
+    final sequence =
+        state.orders.where((order) {
+          final sameWarehouse =
+              order.warehouseId == warehouseRef ||
+              order.warehouseId == warehouseCode;
+          final sameStore =
+              order.storeId == storeRef || order.storeId == storeCode;
+          final sameDate =
+              order.createdAt.year == now.year &&
+              order.createdAt.month == now.month &&
+              order.createdAt.day == now.day;
+          return sameWarehouse && sameStore && sameDate;
+        }).length +
+        1;
+
+    return 'ORD-$warehouseCode-$storeCode-$datePart-${sequence.toString().padLeft(3, '0')}';
+  }
+
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+
+  void _startLiveRefreshTicker() {
+    _liveRefreshTicker?.cancel();
+    _liveRefreshTicker = Timer.periodic(const Duration(seconds: 12), (_) {
+      if (!state.isOnline || state.session == null) {
+        return;
+      }
+      unawaited(refreshForCurrentRole());
+    });
+  }
 
   Future<void> initialize() async {
     await _store.init();
@@ -34,6 +100,7 @@ class AppController extends StateNotifier<AppState> {
     final orders = _store.readOrders();
     final inventory = _store.readInventory();
     final queue = _store.readQueue();
+    final inventoryCatalog = _store.readInventoryCatalog();
 
     state = state.copyWith(
       initialized: true,
@@ -41,6 +108,7 @@ class AppController extends StateNotifier<AppState> {
       orders: orders,
       inventory: inventory,
       syncQueue: queue,
+      inventoryCatalog: inventoryCatalog.merge(inventory: inventory),
       isOnline: true,
     );
 
@@ -50,9 +118,11 @@ class AppController extends StateNotifier<AppState> {
       state = state.copyWith(isOnline: online);
       if (online) {
         unawaited(syncPendingActions());
-        unawaited(refreshData());
+        unawaited(refreshForCurrentRole());
       }
     });
+
+    _startLiveRefreshTicker();
 
     if (session != null) {
       if (session.shouldRefreshToken) {
@@ -77,7 +147,7 @@ class AppController extends StateNotifier<AppState> {
       }
 
       if (state.isOnline) {
-        await refreshData();
+        await refreshForCurrentRole();
       }
     }
   }
@@ -110,6 +180,7 @@ class AppController extends StateNotifier<AppState> {
   }
 
   Future<void> logout() async {
+    _liveRefreshTicker?.cancel();
     await _store.clearAll();
     state = AppState.initial.copyWith(
       initialized: true,
@@ -133,6 +204,10 @@ class AppController extends StateNotifier<AppState> {
         );
         final adminInventory = await _api.fetchInventory('', session.token);
         final orders = await _api.fetchOrders(session);
+        final inventoryCatalog = _mergeInventoryCatalog(
+          inventory: adminInventory,
+        );
+        await _store.writeInventoryCatalog(inventoryCatalog);
         state = state.copyWith(
           loading: false,
           employees: users,
@@ -141,6 +216,7 @@ class AppController extends StateNotifier<AppState> {
           salaryPayouts: staff.salaryPayouts,
           leaveRecords: staff.leaveRecords,
           adminInventory: adminInventory,
+          inventoryCatalog: inventoryCatalog,
           products: const <Product>[],
           orders: orders,
           inventory: const <InventoryItem>[],
@@ -159,6 +235,11 @@ class AppController extends StateNotifier<AppState> {
 
       await _store.replaceInventory(inventory);
       await _store.replaceOrders(orders);
+      final inventoryCatalog = _mergeInventoryCatalog(
+        products: products,
+        inventory: inventory,
+      );
+      await _store.writeInventoryCatalog(inventoryCatalog);
 
       state = state.copyWith(
         loading: false,
@@ -171,6 +252,139 @@ class AppController extends StateNotifier<AppState> {
         leaveRecords: staff.leaveRecords,
         adminInventory: const <InventoryItem>[],
         employees: const <EmployeeUser>[],
+        inventoryCatalog: inventoryCatalog,
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> refreshForCurrentRole() async {
+    final session = state.session;
+    if (session == null || !state.isOnline) {
+      return;
+    }
+
+    if (session.role == UserRole.superadmin) {
+      await refreshData();
+      return;
+    }
+
+    if (session.role == UserRole.warehouseManager) {
+      await _refreshWarehouseView();
+      return;
+    }
+
+    await _refreshStoreView();
+  }
+
+  Future<void> refreshOrdersOnly() async {
+    final session = state.session;
+    if (session == null || !state.isOnline) {
+      return;
+    }
+
+    try {
+      final orders = await _api.fetchOrders(session);
+      await _store.replaceOrders(orders);
+      state = state.copyWith(orders: orders);
+    } catch (error) {
+      state = state.copyWith(
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> refreshInventoryOnly() async {
+    final session = state.session;
+    if (session == null || !state.isOnline) {
+      return;
+    }
+
+    try {
+      final inventory = await _api.fetchInventory(
+        session.locationId,
+        session.token,
+      );
+      await _store.replaceInventory(inventory);
+      final inventoryCatalog = _mergeInventoryCatalog(inventory: inventory);
+      await _store.writeInventoryCatalog(inventoryCatalog);
+      state = state.copyWith(inventory: inventory);
+    } catch (error) {
+      state = state.copyWith(
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> _refreshWarehouseView() async {
+    final session = state.session;
+    if (session == null || !state.isOnline) {
+      return;
+    }
+
+    state = state.copyWith(loading: true);
+    try {
+      final inventory = await _api.fetchInventory(
+        session.locationId,
+        session.token,
+      );
+      final orders = await _api.fetchOrders(session);
+      final locations = state.locations.isEmpty
+          ? await _api.fetchLocations(session.token)
+          : state.locations;
+
+      await _store.replaceInventory(inventory);
+      await _store.replaceOrders(orders);
+      final inventoryCatalog = _mergeInventoryCatalog(inventory: inventory);
+      await _store.writeInventoryCatalog(inventoryCatalog);
+
+      state = state.copyWith(
+        loading: false,
+        inventory: inventory,
+        orders: orders,
+        locations: locations,
+        inventoryCatalog: inventoryCatalog,
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> _refreshStoreView() async {
+    final session = state.session;
+    if (session == null || !state.isOnline) {
+      return;
+    }
+
+    state = state.copyWith(loading: true);
+    try {
+      final inventory = await _api.fetchInventory(
+        session.locationId,
+        session.token,
+      );
+      final orders = await _api.fetchOrders(session);
+      final locations = state.locations.isEmpty
+          ? await _api.fetchLocations(session.token)
+          : state.locations;
+
+      await _store.replaceInventory(inventory);
+      await _store.replaceOrders(orders);
+      final inventoryCatalog = _mergeInventoryCatalog(inventory: inventory);
+      await _store.writeInventoryCatalog(inventoryCatalog);
+
+      state = state.copyWith(
+        loading: false,
+        inventory: inventory,
+        orders: orders,
+        locations: locations,
+        inventoryCatalog: inventoryCatalog,
       );
     } catch (error) {
       state = state.copyWith(
@@ -207,31 +421,101 @@ class AppController extends StateNotifier<AppState> {
     required String title,
     required String sku,
     required int quantity,
+    String? warehouseRef,
+  }) async {
+    await createCartOrderRequest(
+      warehouseRef: warehouseRef,
+      items: [
+        OrderItem(
+          productId: productId,
+          title: title,
+          sku: sku,
+          quantity: quantity,
+        ),
+      ],
+    );
+  }
+
+  Future<bool> createCartOrderRequest({
+    required List<OrderItem> items,
+    String? warehouseRef,
   }) async {
     final session = state.session;
-    if (session == null) return;
+    if (session == null) return false;
     if (session.role != UserRole.storeManager) {
       state = state.copyWith(
         message: 'Only store manager can create order requests.',
       );
-      return;
+      return false;
+    }
+
+    final normalizedItems = items
+        .where((item) => item.quantity > 0)
+        .map(
+          (item) => OrderItem(
+            productId: item.productId,
+            title: item.title,
+            sku: item.sku,
+            quantity: item.quantity,
+          ),
+        )
+        .toList(growable: false);
+
+    if (normalizedItems.isEmpty) {
+      state = state.copyWith(message: 'Add at least one item to place order.');
+      return false;
     }
 
     final now = DateTime.now();
-    final warehouseRef = _defaultWarehouseRef();
+    final targetWarehouseRef =
+        (warehouseRef != null && warehouseRef.trim().isNotEmpty)
+        ? warehouseRef.trim()
+        : _defaultWarehouseRef();
+    final orderId = _buildReadableOrderId(
+      warehouseRef: targetWarehouseRef,
+      storeRef: session.locationId,
+      now: now,
+    );
+    final localOrder = StoreOrder(
+      id: _uuid.v4(),
+      orderId: orderId,
+      storeId: session.locationId,
+      storeName: _locationNameFor(session.locationId),
+      warehouseId: targetWarehouseRef,
+      warehouseName: _locationNameFor(targetWarehouseRef),
+      status: OrderStatus.pendingWarehouseApproval,
+      items: normalizedItems,
+      reservedAmount: normalizedItems.fold<int>(
+        0,
+        (sum, item) => sum + item.quantity,
+      ),
+      createdAt: now,
+      updatedAt: now,
+      syncStatus: SyncStatus.synced,
+    );
+
+    final payloadItems = normalizedItems
+        .map((item) => {'product_id': item.productId, 'qty': item.quantity})
+        .toList(growable: false);
 
     if (state.isOnline) {
       try {
         await _api.createOrderOnline(
           session: session,
-          warehouseId: warehouseRef,
-          productId: productId,
-          quantity: quantity,
+          warehouseId: targetWarehouseRef,
+          items: payloadItems,
           idempotencyKey: _uuid.v4(),
         );
-        state = state.copyWith(message: 'Order submitted.');
-        await refreshData();
-        return;
+        final updatedOrders = [localOrder, ...state.orders];
+        await _store.upsertOrder(localOrder);
+        state = state.copyWith(
+          orders: updatedOrders,
+          message: normalizedItems.length > 1
+              ? 'Cart order submitted.'
+              : 'Order submitted.',
+        );
+        unawaited(refreshForCurrentRole());
+        return true;
       } catch (_) {
         state = state.copyWith(
           message: 'Online submit failed. Saved offline and queued for sync.',
@@ -241,20 +525,17 @@ class AppController extends StateNotifier<AppState> {
 
     final order = StoreOrder(
       id: _uuid.v4(),
-      orderId:
-          'ORD-ST01-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.millisecond.toString().padLeft(4, '0')}',
+      orderId: orderId,
       storeId: session.locationId,
-      warehouseId: warehouseRef,
+      storeName: _locationNameFor(session.locationId),
+      warehouseId: targetWarehouseRef,
+      warehouseName: _locationNameFor(targetWarehouseRef),
       status: OrderStatus.draft,
-      items: [
-        OrderItem(
-          productId: productId,
-          title: title,
-          sku: sku,
-          quantity: quantity,
-        ),
-      ],
-      reservedAmount: quantity,
+      items: normalizedItems,
+      reservedAmount: normalizedItems.fold<int>(
+        0,
+        (sum, item) => sum + item.quantity,
+      ),
       createdAt: now,
       updatedAt: now,
       syncStatus: SyncStatus.pendingUpload,
@@ -270,10 +551,8 @@ class AppController extends StateNotifier<AppState> {
       entityId: order.id,
       payload: {
         'storeId': session.locationId,
-        'warehouseId': warehouseRef,
-        'items': [
-          {'product_id': productId, 'qty': quantity},
-        ],
+        'warehouseId': targetWarehouseRef,
+        'items': payloadItems,
       },
       createdAt: now,
       status: SyncStatus.pendingUpload,
@@ -287,11 +566,27 @@ class AppController extends StateNotifier<AppState> {
       syncQueue: updatedQueue,
       message: 'Order saved offline and queued for sync.',
     );
+    return true;
   }
 
   Future<void> transitionOrder(StoreOrder order, OrderStatus target) async {
     final session = state.session;
     if (session == null) return;
+
+    final requiresOnlineApproval =
+        target == OrderStatus.warehouseApproved ||
+        target == OrderStatus.warehouseRejected;
+
+    final updated = order.copyWith(
+      status: target,
+      updatedAt: DateTime.now(),
+      syncStatus: SyncStatus.synced,
+    );
+
+    if (!state.isOnline && requiresOnlineApproval) {
+      state = state.copyWith(message: 'Warehouse approval needs connectivity.');
+      return;
+    }
 
     if (state.isOnline) {
       try {
@@ -300,32 +595,24 @@ class AppController extends StateNotifier<AppState> {
           orderRef: order.id,
           target: target,
         );
-        state = state.copyWith(message: 'Order updated to ${target.name}.');
-        await refreshData();
-        return;
-      } catch (_) {
-        if (session.role == UserRole.superadmin) {
-          state = state.copyWith(message: 'Failed to approve order online.');
-          return;
-        }
+
+        final updatedOrders = state.orders
+            .map((item) => item.id == order.id ? updated : item)
+            .toList(growable: false);
+        await _store.upsertOrder(updated);
         state = state.copyWith(
-          message: 'Online update failed. Saved offline and queued.',
+          orders: updatedOrders,
+          message: 'Order updated to ${target.name}.',
         );
+        unawaited(refreshForCurrentRole());
+        return;
+      } catch (error) {
+        state = state.copyWith(
+          message: error.toString().replaceFirst('Exception: ', ''),
+        );
+        return;
       }
     }
-
-    if (session.role == UserRole.superadmin) {
-      state = state.copyWith(
-        message: 'Superadmin order approval requires internet.',
-      );
-      return;
-    }
-
-    final updated = order.copyWith(
-      status: target,
-      updatedAt: DateTime.now(),
-      syncStatus: SyncStatus.pendingUpload,
-    );
 
     final updatedOrders = state.orders
         .map((o) => o.id == order.id ? updated : o)
@@ -393,6 +680,10 @@ class AppController extends StateNotifier<AppState> {
           ? 'Synced successfully.'
           : '${nextQueue.length} queued action(s) need manual review.',
     );
+
+    if (nextQueue.isEmpty) {
+      unawaited(refreshForCurrentRole());
+    }
   }
 
   Future<void> createEmployee({
@@ -574,7 +865,11 @@ class AppController extends StateNotifier<AppState> {
         imageBytes: imageBytes,
         imageFilename: imageFilename,
       );
-      await refreshData();
+      if (session.role == UserRole.superadmin) {
+        await refreshData();
+      } else {
+        await refreshInventoryOnly();
+      }
       state = state.copyWith(message: 'Inventory item created.');
     } catch (error) {
       state = state.copyWith(
@@ -631,7 +926,11 @@ class AppController extends StateNotifier<AppState> {
         imageBytes: imageBytes,
         imageFilename: imageFilename,
       );
-      await refreshData();
+      if (session.role == UserRole.superadmin) {
+        await refreshData();
+      } else {
+        await refreshInventoryOnly();
+      }
       state = state.copyWith(message: 'Inventory item updated.');
     } catch (error) {
       state = state.copyWith(
@@ -666,7 +965,11 @@ class AppController extends StateNotifier<AppState> {
         productRef: productRef,
         locationId: targetLocation,
       );
-      await refreshData();
+      if (session.role == UserRole.superadmin) {
+        await refreshData();
+      } else {
+        await refreshInventoryOnly();
+      }
       state = state.copyWith(message: 'Inventory item deleted.');
     } catch (error) {
       state = state.copyWith(
@@ -675,12 +978,25 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  Future<void> addInventoryCatalogValue(
+    CatalogEntryType type,
+    String value,
+  ) async {
+    final nextCatalog = state.inventoryCatalog.addValue(type, value);
+    await _store.writeInventoryCatalog(nextCatalog);
+    state = state.copyWith(
+      inventoryCatalog: nextCatalog,
+      message: '${type.label} added to quick options.',
+    );
+  }
+
   void clearMessage() {
     state = state.copyWith(clearMessage: true);
   }
 
   @override
   void dispose() {
+    _liveRefreshTicker?.cancel();
     _connectivitySub?.cancel();
     super.dispose();
   }

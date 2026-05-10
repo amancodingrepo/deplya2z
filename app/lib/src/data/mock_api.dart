@@ -68,6 +68,39 @@ class MockApi {
     );
   }
 
+  Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+    return <String, dynamic>{};
+  }
+
+  List<dynamic> _asListPayload(dynamic value) {
+    if (value is List<dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      final map = Map<String, dynamic>.from(value);
+      final data = map['data'];
+      if (data is List<dynamic>) {
+        return data;
+      }
+    }
+    return const <dynamic>[];
+  }
+
+  Map<String, dynamic> _asMapPayload(dynamic value) {
+    final root = _asMap(value);
+    final data = root['data'];
+    if (data is Map) {
+      return Map<String, dynamic>.from(data);
+    }
+    return root;
+  }
+
   String _roleToApi(UserRole role) {
     return switch (role) {
       UserRole.superadmin => 'superadmin',
@@ -139,15 +172,32 @@ class MockApi {
   /// Returns a rich list of products for listing with images.
   Future<List<Product>> fetchProducts(String token) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
-        '/products',
-        options: _authOptions(token),
-      );
-      final data = response.data ?? <dynamic>[];
-      return data.map((row) {
-        final json = Map<String, dynamic>.from(row as Map);
-        return Product.fromJson(json);
-      }).toList();
+      const limit = 200;
+      var page = 1;
+      var totalPages = 1;
+      final rows = <dynamic>[];
+
+      while (page <= totalPages) {
+        final response = await _dio.get<dynamic>(
+          '/products',
+          queryParameters: {'page': page, 'limit': limit},
+          options: _authOptions(token),
+        );
+
+        final payload = _asMap(response.data);
+        rows.addAll(_asListPayload(payload));
+
+        final meta = _asMap(payload['meta']);
+        totalPages = (meta['pages'] as num?)?.toInt() ?? 1;
+        page += 1;
+      }
+
+      return rows
+          .map((row) {
+            final json = Map<String, dynamic>.from(row as Map);
+            return Product.fromJson(json);
+          })
+          .toList(growable: false);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -158,30 +208,47 @@ class MockApi {
     String token,
   ) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
-        '/inventory',
-        queryParameters: {'location_id': locationId},
-        options: _authOptions(token),
-      );
+      const limit = 200;
+      var page = 1;
+      var totalPages = 1;
+      final rows = <dynamic>[];
 
-      final data = response.data ?? <dynamic>[];
-      return data
+      while (page <= totalPages) {
+        final response = await _dio.get<dynamic>(
+          '/inventory',
+          queryParameters: {
+            'location_id': locationId,
+            'page': page,
+            'limit': limit,
+          },
+          options: _authOptions(token),
+        );
+
+        final payload = _asMap(response.data);
+        rows.addAll(_asListPayload(payload));
+
+        final meta = _asMap(payload['meta']);
+        totalPages = (meta['pages'] as num?)?.toInt() ?? 1;
+        page += 1;
+      }
+
+      return rows
           .map((row) => Map<String, dynamic>.from(row as Map))
           .map(
             (json) => InventoryItem(
-              productId: json['product_id'] as String,
-              sku: json['sku'] as String,
-              title: json['title'] as String,
-              locationId: json['location_id'] as String,
-              availableStock: (json['available_stock'] as num).toInt(),
-              reservedStock: (json['reserved_stock'] as num).toInt(),
-              totalStock: (json['total_stock'] as num).toInt(),
+              productId: (json['product_id'] ?? '').toString(),
+              sku: (json['sku'] ?? '').toString(),
+              title: (json['title'] ?? '').toString(),
+              locationId: (json['location_id'] ?? '').toString(),
+              availableStock: ((json['available_stock'] ?? 0) as num).toInt(),
+              reservedStock: ((json['reserved_stock'] ?? 0) as num).toInt(),
+              totalStock: ((json['total_stock'] ?? 0) as num).toInt(),
               cachedAt: DateTime.now(),
-              brand: (json['brand'] ?? '') as String,
-              category: (json['category'] ?? '') as String,
-              model: (json['model'] ?? '') as String,
-              color: (json['color'] ?? '') as String,
-              imageUrl: json['image_url'] as String?,
+              brand: (json['brand'] ?? '').toString(),
+              category: (json['category'] ?? '').toString(),
+              model: (json['model'] ?? '').toString(),
+              color: (json['color'] ?? '').toString(),
+              imageUrl: (json['image_url'] ?? json['imageUrl']) as String?,
             ),
           )
           .toList();
@@ -192,20 +259,15 @@ class MockApi {
 
   Future<List<StoreOrder>> fetchOrders(UserSession session) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<dynamic>(
         '/orders',
         options: _authOptions(session.token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final rows = _asListPayload(response.data);
       return rows.map((row) {
         final json = Map<String, dynamic>.from(row as Map);
-        final status = OrderStatus.values.firstWhere(
-          (s) => s.name == (json['status'] as String).replaceAll('_', ''),
-          orElse: () {
-            final raw = json['status'] as String;
-            if (raw == 'store_received') return OrderStatus.storeReceived;
-            return OrderStatus.draft;
-          },
+        final status = OrderStatusApi.fromApi(
+          (json['status'] ?? 'draft').toString(),
         );
 
         final items = (json['items'] as List<dynamic>? ?? const <dynamic>[])
@@ -223,15 +285,21 @@ class MockApi {
             .toList();
 
         return StoreOrder(
-          id: json['id'] as String,
-          orderId: json['order_id'] as String,
-          storeId: json['store_id'] as String,
-          warehouseId: json['warehouse_id'] as String,
+          id: (json['id'] ?? '').toString(),
+          orderId: (json['order_id'] ?? '').toString(),
+          storeId: (json['store_id'] ?? '').toString(),
+          storeName: (json['store_name'] ?? 'Store').toString(),
+          warehouseId: (json['warehouse_id'] ?? '').toString(),
+          warehouseName: (json['warehouse_name'] ?? 'Warehouse').toString(),
           status: status,
           items: items,
           reservedAmount: items.fold<int>(0, (sum, i) => sum + i.quantity),
-          createdAt: DateTime.parse(json['created_at'] as String),
-          updatedAt: DateTime.parse(json['updated_at'] as String),
+          createdAt:
+              DateTime.tryParse((json['created_at'] ?? '').toString()) ??
+              DateTime.now(),
+          updatedAt:
+              DateTime.tryParse((json['updated_at'] ?? '').toString()) ??
+              DateTime.now(),
           syncStatus: SyncStatus.synced,
         );
       }).toList();
@@ -276,19 +344,34 @@ class MockApi {
   Future<void> createOrderOnline({
     required UserSession session,
     required String warehouseId,
-    required String productId,
-    required int quantity,
+    List<Map<String, dynamic>>? items,
+    String? productId,
+    int? quantity,
     required String idempotencyKey,
   }) async {
+    final resolvedItems =
+        items ??
+        <Map<String, dynamic>>[
+          {'product_id': productId, 'qty': quantity},
+        ];
+    final validItems = resolvedItems
+        .where(
+          (item) =>
+              (item['product_id']?.toString().isNotEmpty ?? false) &&
+              ((item['qty'] as num?)?.toInt() ?? 0) > 0,
+        )
+        .toList(growable: false);
+    if (validItems.isEmpty) {
+      throw Exception('At least one order item is required.');
+    }
+
     await _dio.post(
       '/orders',
       options: _authOptions(session.token, idempotencyKey: idempotencyKey),
       data: {
         'store_id': session.locationId,
         'warehouse_id': warehouseId,
-        'items': [
-          {'product_id': productId, 'qty': quantity},
-        ],
+        'items': validItems,
       },
     );
   }
@@ -299,7 +382,10 @@ class MockApi {
     required OrderStatus target,
   }) async {
     final endpoint = switch (target) {
-      OrderStatus.confirmed => '/orders/$orderRef/approve',
+      OrderStatus.confirmed ||
+      OrderStatus.warehouseApproved => '/orders/$orderRef/approve',
+      OrderStatus.pendingWarehouseApproval => null,
+      OrderStatus.warehouseRejected => '/orders/$orderRef/reject',
       OrderStatus.packed => '/orders/$orderRef/pack',
       OrderStatus.dispatched => '/orders/$orderRef/dispatch',
       OrderStatus.storeReceived ||
@@ -319,11 +405,11 @@ class MockApi {
 
   Future<List<AppLocation>> fetchLocations(String token) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<dynamic>(
         '/locations',
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final rows = _asListPayload(response.data);
       return rows
           .map(
             (row) =>
@@ -337,11 +423,11 @@ class MockApi {
 
   Future<List<EmployeeUser>> fetchUsers(String token) async {
     try {
-      final response = await _dio.get<List<dynamic>>(
+      final response = await _dio.get<dynamic>(
         '/users',
         options: _authOptions(token),
       );
-      final rows = response.data ?? <dynamic>[];
+      final rows = _asListPayload(response.data);
       return rows
           .map(
             (row) =>
@@ -362,7 +448,7 @@ class MockApi {
     String? locationId,
   }) async {
     try {
-      final response = await _dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<dynamic>(
         '/users',
         options: _authOptions(token),
         data: {
@@ -373,7 +459,7 @@ class MockApi {
           'location_id': role == UserRole.superadmin ? null : locationId,
         },
       );
-      final data = response.data ?? <String, dynamic>{};
+      final data = _asMapPayload(response.data);
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -386,12 +472,12 @@ class MockApi {
     required bool active,
   }) async {
     try {
-      final response = await _dio.patch<Map<String, dynamic>>(
+      final response = await _dio.patch<dynamic>(
         '/users/$userId',
         options: _authOptions(token),
         data: {'status': active ? 'active' : 'inactive'},
       );
-      final data = response.data ?? <String, dynamic>{};
+      final data = _asMapPayload(response.data);
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -518,14 +604,26 @@ class MockApi {
 
   Future<StaffRecordsBundle> fetchMyStaffRecords(String token) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/staff/me',
+      final response = await _dio.get<dynamic>(
+        '/staff/attendance',
         options: _authOptions(token),
       );
-      final data = response.data ?? <String, dynamic>{};
-      return StaffRecordsBundle.fromJson(data);
+      final attendanceRows = _asListPayload(response.data);
+      final attendance = attendanceRows
+          .whereType<Map>()
+          .map((row) => _attendanceFromApi(Map<String, dynamic>.from(row)))
+          .toList();
+      return StaffRecordsBundle(
+        attendance: attendance,
+        salaryPayouts: const <SalaryPayoutRecord>[],
+        leaveRecords: const <LeaveRecord>[],
+      );
     } catch (error) {
-      throw Exception(_errorMessage(error));
+      return const StaffRecordsBundle(
+        attendance: <AttendanceRecord>[],
+        salaryPayouts: <SalaryPayoutRecord>[],
+        leaveRecords: <LeaveRecord>[],
+      );
     }
   }
 
@@ -534,17 +632,29 @@ class MockApi {
     String? userId,
   }) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/staff/records',
+      final response = await _dio.get<dynamic>(
+        '/staff/attendance',
         queryParameters: {
-          if (userId != null && userId.isNotEmpty) 'user_id': userId,
+          if (userId != null && userId.isNotEmpty) 'staff_id': userId,
         },
         options: _authOptions(token),
       );
-      final data = response.data ?? <String, dynamic>{};
-      return StaffRecordsBundle.fromJson(data);
+      final attendanceRows = _asListPayload(response.data);
+      final attendance = attendanceRows
+          .whereType<Map>()
+          .map((row) => _attendanceFromApi(Map<String, dynamic>.from(row)))
+          .toList();
+      return StaffRecordsBundle(
+        attendance: attendance,
+        salaryPayouts: const <SalaryPayoutRecord>[],
+        leaveRecords: const <LeaveRecord>[],
+      );
     } catch (error) {
-      throw Exception(_errorMessage(error));
+      return const StaffRecordsBundle(
+        attendance: <AttendanceRecord>[],
+        salaryPayouts: <SalaryPayoutRecord>[],
+        leaveRecords: <LeaveRecord>[],
+      );
     }
   }
 
@@ -573,24 +683,44 @@ class MockApi {
 
   InventoryItem _inventoryFromApi(Map<String, dynamic> json) {
     return InventoryItem(
-      productId: json['product_id'] as String,
-      sku: json['sku'] as String,
-      title: json['title'] as String,
-      locationId: json['location_id'] as String,
-      availableStock: (json['available_stock'] as num).toInt(),
-      reservedStock: (json['reserved_stock'] as num).toInt(),
-      totalStock: (json['total_stock'] as num).toInt(),
+      productId: (json['product_id'] ?? '').toString(),
+      sku: (json['sku'] ?? '').toString(),
+      title: (json['title'] ?? '').toString(),
+      locationId: (json['location_id'] ?? '').toString(),
+      availableStock: ((json['available_stock'] ?? 0) as num).toInt(),
+      reservedStock: ((json['reserved_stock'] ?? 0) as num).toInt(),
+      totalStock: ((json['total_stock'] ?? 0) as num).toInt(),
       cachedAt: DateTime.now(),
-      brand: (json['brand'] ?? '') as String,
-      category: (json['category'] ?? '') as String,
-      model: (json['model'] ?? '') as String,
-      color: (json['color'] ?? '') as String,
-      imageUrl: json['image_url'] as String?,
+      brand: (json['brand'] ?? '').toString(),
+      category: (json['category'] ?? '').toString(),
+      model: (json['model'] ?? '').toString(),
+      color: (json['color'] ?? '').toString(),
+      imageUrl: (json['image_url'] ?? json['imageUrl']) as String?,
+    );
+  }
+
+  AttendanceRecord _attendanceFromApi(Map<String, dynamic> json) {
+    final dateValue = (json['attendance_date'] ?? json['date'] ?? '')
+        .toString();
+    final markedValue =
+        (json['marked_at'] ?? json['check_in_time'] ?? json['updated_at'] ?? '')
+            .toString();
+    return AttendanceRecord(
+      id: (json['id'] ?? _uuid.v4()).toString(),
+      userId: (json['user_id'] ?? json['staff_id'] ?? '').toString(),
+      userName: (json['user_name'] ?? json['name'] ?? 'Staff').toString(),
+      attendanceDate: DateTime.tryParse(dateValue) ?? DateTime.now(),
+      status: AttendanceStatusApi.fromApi(
+        (json['status'] ?? 'present').toString(),
+      ),
+      markedAt: DateTime.tryParse(markedValue) ?? DateTime.now(),
+      locationName: json['location_name'] as String?,
     );
   }
 
   // ─── Rich mock product catalog ──────────────────────────────────
 
+  // ignore: unused_field
   static final List<Product> _mockProducts = [
     const Product(
       id: 'P001',
@@ -706,87 +836,102 @@ class MockApi {
     ),
   ];
 
+  // ignore: unused_field
   static final List<StoreOrder> _mockOrders = [
     StoreOrder(
       id: 'O1',
-      orderId: 'ORD-ST01-20260412-0001',
+      orderId: 'ORD-WH01-ST01-20260420-001',
       storeId: 'ST01',
+      storeName: 'Premium Store - Delhi CP',
       warehouseId: 'WH01',
-      status: OrderStatus.confirmed,
+      warehouseName: 'Main Warehouse - Delhi',
+      status: OrderStatus.pendingWarehouseApproval,
       items: const [
         OrderItem(
           productId: 'P001',
-          title: 'Samsung 55" QLED Smart TV',
+          title: 'Samsung 55" Smart TV 4K',
           sku: 'SKU-TV-001',
-          quantity: 5,
+          quantity: 2,
+        ),
+        OrderItem(
+          productId: 'P011',
+          title: 'Office Paper A4 500 sheets',
+          sku: 'SKU-SUP-001',
+          quantity: 12,
         ),
       ],
-      reservedAmount: 5,
-      createdAt: DateTime.now().subtract(const Duration(hours: 3)),
-      updatedAt: DateTime.now().subtract(const Duration(hours: 2)),
+      reservedAmount: 14,
+      createdAt: DateTime.now().subtract(const Duration(hours: 2)),
+      updatedAt: DateTime.now().subtract(const Duration(hours: 1, minutes: 20)),
       syncStatus: SyncStatus.synced,
     ),
     StoreOrder(
       id: 'O2',
-      orderId: 'ORD-ST01-20260412-0002',
-      storeId: 'ST01',
-      warehouseId: 'WH01',
-      status: OrderStatus.packed,
+      orderId: 'ORD-WH02-ST02-20260419-001',
+      storeId: 'ST02',
+      storeName: 'Branch Store - Mumbai Andheri',
+      warehouseId: 'WH02',
+      warehouseName: 'Regional Warehouse - Mumbai',
+      status: OrderStatus.warehouseApproved,
       items: const [
         OrderItem(
-          productId: 'P002',
-          title: 'LG Double Door Refrigerator',
-          sku: 'SKU-FRD-001',
-          quantity: 3,
+          productId: 'P007',
+          title: 'LG French Door Refrigerator',
+          sku: 'SKU-APP-001',
+          quantity: 1,
         ),
       ],
-      reservedAmount: 3,
-      createdAt: DateTime.now().subtract(const Duration(hours: 5)),
-      updatedAt: DateTime.now().subtract(const Duration(hours: 1)),
-      syncStatus: SyncStatus.synced,
-    ),
-    StoreOrder(
-      id: 'O3',
-      orderId: 'ORD-ST01-20260411-0003',
-      storeId: 'ST01',
-      warehouseId: 'WH01',
-      status: OrderStatus.dispatched,
-      items: const [
-        OrderItem(
-          productId: 'P003',
-          title: 'Sony WH-1000XM5 Headphones',
-          sku: 'SKU-HP-001',
-          quantity: 10,
-        ),
-        OrderItem(
-          productId: 'P006',
-          title: 'Samsung Galaxy S24 Ultra',
-          sku: 'SKU-PH-001',
-          quantity: 4,
-        ),
-      ],
-      reservedAmount: 14,
-      createdAt: DateTime.now().subtract(const Duration(hours: 26)),
+      reservedAmount: 1,
+      createdAt: DateTime.now().subtract(const Duration(days: 1, hours: 3)),
       updatedAt: DateTime.now().subtract(const Duration(hours: 6)),
       syncStatus: SyncStatus.synced,
     ),
     StoreOrder(
-      id: 'O4',
-      orderId: 'ORD-ST01-20260410-0004',
-      storeId: 'ST01',
+      id: 'O3',
+      orderId: 'ORD-WH01-ST03-20260418-001',
+      storeId: 'ST03',
+      storeName: 'Outlet Store - Bengaluru',
       warehouseId: 'WH01',
-      status: OrderStatus.completed,
+      warehouseName: 'Main Warehouse - Delhi',
+      status: OrderStatus.dispatched,
       items: const [
         OrderItem(
-          productId: 'P004',
-          title: 'Apple MacBook Pro 14"',
-          sku: 'SKU-LPT-001',
+          productId: 'P003',
+          title: 'iPhone 15 Pro Max 256GB',
+          sku: 'SKU-PH-001',
+          quantity: 3,
+        ),
+        OrderItem(
+          productId: 'P013',
+          title: 'Desk Lamp LED 15W',
+          sku: 'SKU-OFF-001',
+          quantity: 6,
+        ),
+      ],
+      reservedAmount: 9,
+      createdAt: DateTime.now().subtract(const Duration(days: 2, hours: 4)),
+      updatedAt: DateTime.now().subtract(const Duration(hours: 4)),
+      syncStatus: SyncStatus.synced,
+    ),
+    StoreOrder(
+      id: 'O4',
+      orderId: 'ORD-WH02-ST01-20260417-001',
+      storeId: 'ST01',
+      storeName: 'Premium Store - Delhi CP',
+      warehouseId: 'WH02',
+      warehouseName: 'Regional Warehouse - Mumbai',
+      status: OrderStatus.warehouseRejected,
+      items: const [
+        OrderItem(
+          productId: 'P006',
+          title: 'LG French Door Refrigerator',
+          sku: 'SKU-APP-001',
           quantity: 2,
         ),
       ],
       reservedAmount: 2,
-      createdAt: DateTime.now().subtract(const Duration(days: 3)),
-      updatedAt: DateTime.now().subtract(const Duration(days: 2)),
+      createdAt: DateTime.now().subtract(const Duration(days: 3, hours: 2)),
+      updatedAt: DateTime.now().subtract(const Duration(days: 3, hours: 1)),
       syncStatus: SyncStatus.synced,
     ),
   ];

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/app_theme.dart';
 import '../state/providers.dart';
+import 'widgets/inventory_filter_bar.dart';
+import 'widgets/inventory_catalog_tools.dart';
 import 'widgets/glass_card.dart';
 import 'widgets/product_image.dart';
 
@@ -15,27 +17,40 @@ class InventoryScreen extends ConsumerStatefulWidget {
 
 class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   String _search = '';
+  String _selectedCategory = '';
+  String _selectedDevice = '';
+  String _selectedBrand = '';
+  String _selectedModel = '';
+  String _selectedColor = '';
+  InventoryStockFilter _stockFilter = InventoryStockFilter.all;
+  InventorySortOption _sortOption = InventorySortOption.relevance;
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(appControllerProvider);
-    final inventory = state.inventory.where((i) {
-      if (_search.isEmpty) return true;
-      final q = _search.toLowerCase();
-      return i.title.toLowerCase().contains(q) ||
-          i.sku.toLowerCase().contains(q) ||
-          i.brand.toLowerCase().contains(q);
-    }).toList();
+    final inventory = filterInventoryItems(
+      state.inventory,
+      search: _search,
+      category: _selectedCategory,
+      device: _selectedDevice,
+      brand: _selectedBrand,
+      model: _selectedModel,
+      color: _selectedColor,
+      stockFilter: _stockFilter,
+      sort: _sortOption,
+    );
+    final categoryOptions = state.inventoryCatalog.categories;
+    final deviceOptions = state.inventoryCatalog.devices;
+    final brandOptions = inventoryFilterValues(
+      state.inventory,
+      (item) => item.brand,
+    );
+    final modelOptions = state.inventoryCatalog.models;
+    final colorOptions = state.inventoryCatalog.colors;
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF0D0D1A), Color(0xFF111128)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+        decoration: const BoxDecoration(gradient: AppTheme.backgroundGradient),
         child: SafeArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,17 +77,37 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                   ],
                 ),
               ),
-              // Search
+              // Search and filters
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                child: TextField(
-                  onChanged: (v) => setState(() => _search = v),
-                  style: const TextStyle(color: AppTheme.textPrimary),
-                  decoration: const InputDecoration(
-                    hintText: 'Search products...',
-                    prefixIcon: Icon(Icons.search_rounded,
-                        color: AppTheme.textMuted),
-                  ),
+                child: InventoryFilterBar(
+                  searchValue: _search,
+                  onSearchChanged: (value) => setState(() => _search = value),
+                  categoryValue: _selectedCategory,
+                  onCategoryChanged: (value) =>
+                      setState(() => _selectedCategory = value),
+                  categoryOptions: categoryOptions,
+                  deviceValue: _selectedDevice,
+                  onDeviceChanged: (value) =>
+                      setState(() => _selectedDevice = value),
+                  deviceOptions: deviceOptions,
+                  brandValue: _selectedBrand,
+                  onBrandChanged: (value) =>
+                      setState(() => _selectedBrand = value),
+                  brandOptions: brandOptions,
+                  modelValue: _selectedModel,
+                  onModelChanged: (value) =>
+                      setState(() => _selectedModel = value),
+                  modelOptions: modelOptions,
+                  colorValue: _selectedColor,
+                  onColorChanged: (value) =>
+                      setState(() => _selectedColor = value),
+                  colorOptions: colorOptions,
+                  stockFilter: _stockFilter,
+                  onStockFilterChanged: (value) =>
+                      setState(() => _stockFilter = value),
+                  sortOption: _sortOption,
+                  onSortChanged: (value) => setState(() => _sortOption = value),
                 ),
               ),
               // List
@@ -95,7 +130,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                                 ProductImage(
                                   imageUrl: item.imageUrl,
                                   localPath: item.localImagePath,
-                                  size: 56,
+                                  size: 76,
+                                  borderRadius: 16,
+                                  fit: BoxFit.contain,
+                                  padding: const EdgeInsets.all(8),
                                 ),
                                 const SizedBox(width: 14),
                                 Expanded(
@@ -107,32 +145,50 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                                         item.title,
                                         style: const TextStyle(
                                           color: AppTheme.textPrimary,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 15,
                                         ),
                                       ),
-                                      const SizedBox(height: 2),
+                                      const SizedBox(height: 4),
                                       Text(
-                                        '${item.sku} • ${item.brand}',
+                                        item.brand.isEmpty
+                                            ? item.sku
+                                            : '${item.brand} • ${item.sku}',
                                         style: const TextStyle(
                                           color: AppTheme.textMuted,
                                           fontSize: 12,
                                         ),
                                       ),
                                       if (item.model.isNotEmpty)
-                                        Text(
-                                          '${item.model} • ${item.color}',
-                                          style: const TextStyle(
-                                            color: AppTheme.textMuted,
-                                            fontSize: 11,
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 6,
+                                          ),
+                                          child: Wrap(
+                                            spacing: 8,
+                                            crossAxisAlignment:
+                                                WrapCrossAlignment.center,
+                                            children: [
+                                              Text(
+                                                item.model,
+                                                style: const TextStyle(
+                                                  color: AppTheme.textMuted,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                              if (item.color.isNotEmpty)
+                                                CatalogColorDot(
+                                                  value: item.color,
+                                                  size: 16,
+                                                ),
+                                            ],
                                           ),
                                         ),
                                     ],
                                   ),
                                 ),
                                 Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.end,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
                                     Text(
                                       '${item.availableStock}',
@@ -149,8 +205,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                                       style: TextStyle(
                                         fontSize: 10,
                                         color: item.isLowStock
-                                            ? AppTheme.error
-                                                .withValues(alpha: 0.7)
+                                            ? AppTheme.error.withValues(
+                                                alpha: 0.7,
+                                              )
                                             : AppTheme.textMuted,
                                       ),
                                     ),
@@ -159,16 +216,17 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Container(
-                                          padding:
-                                              const EdgeInsets.symmetric(
+                                          padding: const EdgeInsets.symmetric(
                                             horizontal: 6,
                                             vertical: 2,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: AppTheme.warning
-                                                .withValues(alpha: 0.1),
-                                            borderRadius:
-                                                BorderRadius.circular(4),
+                                            color: AppTheme.warning.withValues(
+                                              alpha: 0.1,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
                                           ),
                                           child: Text(
                                             'R${item.reservedStock}',
@@ -181,16 +239,17 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                                         ),
                                         const SizedBox(width: 4),
                                         Container(
-                                          padding:
-                                              const EdgeInsets.symmetric(
+                                          padding: const EdgeInsets.symmetric(
                                             horizontal: 6,
                                             vertical: 2,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: AppTheme.info
-                                                .withValues(alpha: 0.1),
-                                            borderRadius:
-                                                BorderRadius.circular(4),
+                                            color: AppTheme.info.withValues(
+                                              alpha: 0.1,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
                                           ),
                                           child: Text(
                                             'T${item.totalStock}',

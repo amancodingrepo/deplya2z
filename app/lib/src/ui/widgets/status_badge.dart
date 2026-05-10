@@ -15,10 +15,13 @@ class StatusBadge extends StatelessWidget {
     final (color, label) = switch (status) {
       OrderStatus.draft => (AppTheme.textMuted, 'Draft'),
       OrderStatus.confirmed => (AppTheme.info, 'Confirmed'),
+      OrderStatus.pendingWarehouseApproval => (AppTheme.warning, 'Pending'),
+      OrderStatus.warehouseApproved => (AppTheme.info, 'Approved'),
+      OrderStatus.warehouseRejected => (AppTheme.error, 'Rejected'),
       OrderStatus.packed => (AppTheme.warning, 'Packed'),
-      OrderStatus.dispatched => (const Color(0xFF818CF8), 'Dispatched'),
+      OrderStatus.dispatched => (const Color(0xFF0EA5E9), 'Dispatched'),
       OrderStatus.storeReceived => (AppTheme.success, 'Received'),
-      OrderStatus.completed => (const Color(0xFF2DD4BF), 'Completed'),
+      OrderStatus.completed => (const Color(0xFF059669), 'Completed'),
       OrderStatus.cancelled => (AppTheme.error, 'Cancelled'),
     };
 

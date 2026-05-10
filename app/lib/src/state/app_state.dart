@@ -16,6 +16,7 @@ class AppState {
     required this.salaryPayouts,
     required this.leaveRecords,
     required this.adminInventory,
+    required this.inventoryCatalog,
     required this.message,
   });
 
@@ -33,6 +34,7 @@ class AppState {
   final List<SalaryPayoutRecord> salaryPayouts;
   final List<LeaveRecord> leaveRecords;
   final List<InventoryItem> adminInventory;
+  final InventoryCatalog inventoryCatalog;
   final String? message;
 
   bool get isLoggedIn => session != null;
@@ -53,6 +55,7 @@ class AppState {
     List<SalaryPayoutRecord>? salaryPayouts,
     List<LeaveRecord>? leaveRecords,
     List<InventoryItem>? adminInventory,
+    InventoryCatalog? inventoryCatalog,
     String? message,
     bool clearMessage = false,
   }) {
@@ -71,6 +74,7 @@ class AppState {
       salaryPayouts: salaryPayouts ?? this.salaryPayouts,
       leaveRecords: leaveRecords ?? this.leaveRecords,
       adminInventory: adminInventory ?? this.adminInventory,
+      inventoryCatalog: inventoryCatalog ?? this.inventoryCatalog,
       message: clearMessage ? null : (message ?? this.message),
     );
   }
@@ -90,6 +94,7 @@ class AppState {
     salaryPayouts: <SalaryPayoutRecord>[],
     leaveRecords: <LeaveRecord>[],
     adminInventory: <InventoryItem>[],
+    inventoryCatalog: InventoryCatalog.empty,
     message: null,
   );
 }

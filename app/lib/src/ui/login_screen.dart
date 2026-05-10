@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/app_theme.dart';
 import '../core/models.dart';
 import '../state/providers.dart';
+import 'widgets/glass_card.dart';
 import 'widgets/gradient_button.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -15,10 +16,8 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen>
     with SingleTickerProviderStateMixin {
-  final _emailController = TextEditingController(
-    text: 'warehouse@storewarehouse.com',
-  );
-  final _passwordController = TextEditingController(text: 'password123');
+  late TextEditingController _emailController;
+  late TextEditingController _passwordController;
   UserRole _selectedRole = UserRole.warehouseManager;
   bool _obscurePassword = true;
 
@@ -29,6 +28,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   @override
   void initState() {
     super.initState();
+    _emailController = TextEditingController();
+    _passwordController = TextEditingController();
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -49,219 +50,265 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     super.dispose();
   }
 
+  void _clearForm() {
+    _emailController.clear();
+    _passwordController.clear();
+    _selectedRole = UserRole.warehouseManager;
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(appControllerProvider);
 
+    // Clear form after successful login
+    ref.listen(appControllerProvider, (previous, next) {
+      if (previous?.session == null && next.session != null) {
+        _clearForm();
+      }
+    });
+
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF0D0D1A), Color(0xFF16213E), Color(0xFF0D0D1A)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+      body: Stack(
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              gradient: AppTheme.backgroundGradient,
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: FadeTransition(
-                opacity: _fadeAnim,
-                child: SlideTransition(
-                  position: _slideAnim,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // ─── Logo / Brand ──────────────────────────
-                        Center(
-                          child: Container(
-                            width: 72,
-                            height: 72,
-                            decoration: BoxDecoration(
-                              gradient: AppTheme.primaryGradient,
-                              borderRadius: BorderRadius.circular(20),
-                              boxShadow: AppTheme.glowShadow,
-                            ),
-                            child: const Icon(
-                              Icons.warehouse_rounded,
-                              color: Colors.white,
-                              size: 36,
+          Positioned(
+            top: -80,
+            right: -40,
+            child: _GlowOrb(color: AppTheme.primary, size: 220),
+          ),
+          Positioned(
+            bottom: -100,
+            left: -50,
+            child: _GlowOrb(color: AppTheme.accent, size: 260),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 24,
+                ),
+                child: FadeTransition(
+                  opacity: _fadeAnim,
+                  child: SlideTransition(
+                    position: _slideAnim,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 520),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          GlassCard(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 56,
+                                      height: 56,
+                                      decoration: BoxDecoration(
+                                        gradient: AppTheme.primaryGradient,
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: const Icon(
+                                        Icons.warehouse_rounded,
+                                        color: Colors.white,
+                                        size: 28,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'A2Z Supply Control Center',
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.headlineSmall,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          const Text(
+                                            'Admin, warehouse, and store teams use one live workspace for stock, orders, and approvals.',
+                                            style: TextStyle(
+                                              color: AppTheme.textSecondary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 18),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: const [
+                                    _FeaturePill(
+                                      icon: Icons.cloud_done_rounded,
+                                      label: 'Live backend',
+                                    ),
+                                    _FeaturePill(
+                                      icon: Icons.route_rounded,
+                                      label: 'Order tracking',
+                                    ),
+                                    _FeaturePill(
+                                      icon: Icons.inventory_2_rounded,
+                                      label: 'Stock sync',
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 24),
-                        Text(
-                          'Store & Warehouse',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.headlineMedium,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Supply Management System',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: AppTheme.primaryLight,
-                                fontWeight: FontWeight.w500,
-                              ),
-                        ),
-                        const SizedBox(height: 36),
-
-                        // ─── Form Card ─────────────────────────────
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: AppTheme.bgCard,
-                            borderRadius: BorderRadius.circular(
-                              AppTheme.radiusLg,
-                            ),
-                            border: Border.all(
-                              color: AppTheme.surfaceLight.withValues(
-                                alpha: 0.4,
-                              ),
-                            ),
-                            boxShadow: AppTheme.cardShadow,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                'Sign In',
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.headlineSmall,
-                              ),
-                              const SizedBox(height: 6),
-                              const Text(
-                                'Enter your credentials to continue',
-                                style: TextStyle(
-                                  color: AppTheme.textMuted,
-                                  fontSize: 13,
+                          const SizedBox(height: 16),
+                          GlassCard(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  'Sign in',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.headlineSmall,
                                 ),
-                              ),
-                              const SizedBox(height: 24),
-
-                              // Email
-                              TextField(
-                                controller: _emailController,
-                                keyboardType: TextInputType.emailAddress,
-                                style: const TextStyle(
-                                  color: AppTheme.textPrimary,
-                                ),
-                                decoration: const InputDecoration(
-                                  labelText: 'Email',
-                                  prefixIcon: Icon(
-                                    Icons.mail_outline_rounded,
-                                    size: 20,
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Choose your role, then access the live workspace.',
+                                  style: TextStyle(
                                     color: AppTheme.textMuted,
+                                    fontSize: 13,
                                   ),
                                 ),
-                              ),
-                              const SizedBox(height: 14),
-
-                              // Password
-                              TextField(
-                                controller: _passwordController,
-                                obscureText: _obscurePassword,
-                                style: const TextStyle(
-                                  color: AppTheme.textPrimary,
-                                ),
-                                decoration: InputDecoration(
-                                  labelText: 'Password',
-                                  prefixIcon: const Icon(
-                                    Icons.lock_outline_rounded,
-                                    size: 20,
-                                    color: AppTheme.textMuted,
+                                const SizedBox(height: 22),
+                                TextField(
+                                  controller: _emailController,
+                                  keyboardType: TextInputType.emailAddress,
+                                  style: const TextStyle(
+                                    color: AppTheme.textPrimary,
                                   ),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscurePassword
-                                          ? Icons.visibility_off_rounded
-                                          : Icons.visibility_rounded,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Work email',
+                                    prefixIcon: Icon(
+                                      Icons.mail_outline_rounded,
                                       size: 20,
                                       color: AppTheme.textMuted,
                                     ),
-                                    onPressed: () => setState(
-                                      () =>
-                                          _obscurePassword = !_obscurePassword,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                TextField(
+                                  controller: _passwordController,
+                                  obscureText: _obscurePassword,
+                                  style: const TextStyle(
+                                    color: AppTheme.textPrimary,
+                                  ),
+                                  decoration: InputDecoration(
+                                    labelText: 'Password',
+                                    prefixIcon: const Icon(
+                                      Icons.lock_outline_rounded,
+                                      size: 20,
+                                      color: AppTheme.textMuted,
+                                    ),
+                                    suffixIcon: IconButton(
+                                      tooltip: _obscurePassword
+                                          ? 'Show password'
+                                          : 'Hide password',
+                                      icon: Icon(
+                                        _obscurePassword
+                                            ? Icons.visibility_off_rounded
+                                            : Icons.visibility_rounded,
+                                        size: 20,
+                                        color: AppTheme.textMuted,
+                                      ),
+                                      onPressed: () => setState(
+                                        () => _obscurePassword =
+                                            !_obscurePassword,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(height: 14),
-
-                              // Role Selector
-                              _RoleSelector(
-                                selected: _selectedRole,
-                                onChanged: (role) =>
-                                    setState(() => _selectedRole = role),
-                              ),
-                              const SizedBox(height: 24),
-
-                              // Login Button
-                              GradientButton(
-                                label: 'Sign In',
-                                icon: Icons.login_rounded,
-                                loading: state.loading,
-                                onPressed: state.loading
-                                    ? null
-                                    : () {
-                                        ref
-                                            .read(
-                                              appControllerProvider.notifier,
-                                            )
-                                            .login(
-                                              email: _emailController.text
-                                                  .trim(),
-                                              password:
-                                                  _passwordController.text,
-                                              role: _selectedRole,
-                                            );
-                                      },
-                              ),
-                            ],
+                                const SizedBox(height: 14),
+                                _RoleSelector(
+                                  selected: _selectedRole,
+                                  onChanged: (role) => setState(() {
+                                    _selectedRole = role;
+                                  }),
+                                ),
+                                const SizedBox(height: 20),
+                                GradientButton(
+                                  label: 'Sign In',
+                                  icon: Icons.login_rounded,
+                                  loading: state.loading,
+                                  onPressed: state.loading ? null : _tryLogin,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // Offline / Error indicator
-                        if (!state.isOnline)
-                          _StatusMessage(
-                            icon: Icons.wifi_off_rounded,
-                            text: 'No internet. Login requires connectivity.',
-                            color: AppTheme.error,
+                          const SizedBox(height: 14),
+                          if (!state.isOnline)
+                            _StatusMessage(
+                              icon: Icons.wifi_off_rounded,
+                              text:
+                                  'No internet connection. Sign in needs a live backend.',
+                              color: AppTheme.error,
+                            ),
+                          if (state.message != null)
+                            _StatusMessage(
+                              icon: Icons.info_outline_rounded,
+                              text: state.message!,
+                              color: AppTheme.warning,
+                            ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'A2Z demo accounts: admin@storewarehouse.com, warehouse@storewarehouse.com, store1@storewarehouse.com',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: AppTheme.textMuted),
                           ),
-
-                        if (state.message != null)
-                          _StatusMessage(
-                            icon: Icons.info_outline_rounded,
-                            text: state.message!,
-                            color: AppTheme.warning,
-                          ),
-
-                        const SizedBox(height: 20),
-
-                        // Hint
-                        Text(
-                          'Use admin@storewarehouse.com, warehouse@storewarehouse.com, or store1@storewarehouse.com',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: AppTheme.textMuted),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
+        ],
       ),
+    );
+  }
+
+  void _tryLogin() {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
+      _showError('Email and password are required.');
+      return;
+    }
+
+    final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!emailRegex.hasMatch(email)) {
+      _showError('Enter a valid work email address.');
+      return;
+    }
+
+    ref
+        .read(appControllerProvider.notifier)
+        .login(email: email, password: password, role: _selectedRole);
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: AppTheme.error),
     );
   }
 }
@@ -280,26 +327,30 @@ class _RoleSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.bgCardLight,
+        color: AppTheme.bgCardLight.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        border: Border.all(color: AppTheme.surfaceLight.withValues(alpha: 0.4)),
       ),
       padding: const EdgeInsets.all(4),
       child: Row(
         children: [
           _roleOption(
-            label: 'Employee',
+            label: 'Admin',
+            subtitle: 'Users + reports',
             icon: Icons.admin_panel_settings_rounded,
             role: UserRole.superadmin,
           ),
           const SizedBox(width: 4),
           _roleOption(
             label: 'Warehouse',
+            subtitle: 'Accept + dispatch',
             icon: Icons.warehouse_rounded,
             role: UserRole.warehouseManager,
           ),
           const SizedBox(width: 4),
           _roleOption(
             label: 'Store',
+            subtitle: 'Track deliveries',
             icon: Icons.store_rounded,
             role: UserRole.storeManager,
           ),
@@ -310,6 +361,7 @@ class _RoleSelector extends StatelessWidget {
 
   Widget _roleOption({
     required String label,
+    required String subtitle,
     required IconData icon,
     required UserRole role,
   }) {
@@ -319,26 +371,38 @@ class _RoleSelector extends StatelessWidget {
         onTap: () => onChanged(role),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
           decoration: BoxDecoration(
             gradient: isActive ? AppTheme.primaryGradient : null,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Row(
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Icon(
                 icon,
-                size: 16,
+                size: 17,
                 color: isActive ? Colors.white : AppTheme.textMuted,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(height: 5),
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
                   color: isActive ? Colors.white : AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: isActive
+                      ? Colors.white.withValues(alpha: 0.85)
+                      : AppTheme.textMuted.withValues(alpha: 0.8),
                 ),
               ),
             ],
@@ -380,6 +444,61 @@ class _StatusMessage extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(text, style: TextStyle(color: color, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlowOrb extends StatelessWidget {
+  const _GlowOrb({required this.color, required this.size});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [color.withValues(alpha: 0.24), color.withValues(alpha: 0.0)],
+        ),
+      ),
+    );
+  }
+}
+
+class _FeaturePill extends StatelessWidget {
+  const _FeaturePill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.surface.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppTheme.surfaceLight.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppTheme.primaryLight),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
