@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/app_logger.dart';
 import '../core/local_store.dart';
 import '../core/models.dart';
 import '../data/mock_api.dart';
@@ -94,6 +95,7 @@ class AppController extends StateNotifier<AppState> {
   }
 
   Future<void> initialize() async {
+    AppLogger.info('Initializing app controller');
     await _store.init();
 
     final session = _store.readSession();
@@ -139,7 +141,8 @@ class AppController extends StateNotifier<AppState> {
           );
           await _store.writeSession(refreshed);
           state = state.copyWith(session: refreshed);
-        } catch (_) {
+        } catch (error) {
+          AppLogger.error('Token refresh failed; clearing local session', error: error);
           await _store.clearAll();
           state = state.copyWith(clearSession: true);
           return;
@@ -147,9 +150,22 @@ class AppController extends StateNotifier<AppState> {
       }
 
       if (state.isOnline) {
+        await _verifyBackendReachability();
         await refreshForCurrentRole();
       }
     }
+  }
+
+  Future<bool> _verifyBackendReachability() async {
+    final healthy = await _api.healthCheck();
+    if (!healthy) {
+      state = state.copyWith(
+        message:
+            'Backend is not reachable from this device. Check API URL, server port/firewall, and Android network policy.',
+      );
+      return false;
+    }
+    return true;
   }
 
   Future<void> login({
@@ -166,6 +182,11 @@ class AppController extends StateNotifier<AppState> {
 
     state = state.copyWith(loading: true, clearMessage: true);
     try {
+      final backendReady = await _verifyBackendReachability();
+      if (!backendReady) {
+        state = state.copyWith(loading: false);
+        return;
+      }
       final session = await _api.login(
         email: email,
         password: password,
@@ -175,6 +196,7 @@ class AppController extends StateNotifier<AppState> {
       state = state.copyWith(session: session, loading: false);
       await refreshData();
     } catch (error) {
+      AppLogger.error('Login failed', error: error);
       state = state.copyWith(loading: false, message: error.toString());
     }
   }
@@ -255,6 +277,7 @@ class AppController extends StateNotifier<AppState> {
         inventoryCatalog: inventoryCatalog,
       );
     } catch (error) {
+      AppLogger.error('Refresh data failed', error: error);
       state = state.copyWith(
         loading: false,
         message: error.toString().replaceFirst('Exception: ', ''),
@@ -292,6 +315,7 @@ class AppController extends StateNotifier<AppState> {
       await _store.replaceOrders(orders);
       state = state.copyWith(orders: orders);
     } catch (error) {
+      AppLogger.error('Refresh orders failed', error: error);
       state = state.copyWith(
         message: error.toString().replaceFirst('Exception: ', ''),
       );
@@ -314,6 +338,7 @@ class AppController extends StateNotifier<AppState> {
       await _store.writeInventoryCatalog(inventoryCatalog);
       state = state.copyWith(inventory: inventory);
     } catch (error) {
+      AppLogger.error('Refresh inventory failed', error: error);
       state = state.copyWith(
         message: error.toString().replaceFirst('Exception: ', ''),
       );
@@ -516,7 +541,8 @@ class AppController extends StateNotifier<AppState> {
         );
         unawaited(refreshForCurrentRole());
         return true;
-      } catch (_) {
+      } catch (error) {
+        AppLogger.error('Online order submission failed; queuing offline', error: error);
         state = state.copyWith(
           message: 'Online submit failed. Saved offline and queued for sync.',
         );
@@ -664,6 +690,10 @@ class AppController extends StateNotifier<AppState> {
         await _api.syncAction(action, state.session!);
         await _store.removeQueueItem(action.id);
       } catch (error) {
+        AppLogger.error('Sync action failed', error: error, context: {
+          'actionId': action.id,
+          'actionType': action.type.name,
+        });
         final failed = action.copyWith(
           status: SyncStatus.failed,
           retryCount: action.retryCount + 1,

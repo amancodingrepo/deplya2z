@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        The current mobile API default is http://69.62.84.211:8080/v1.
+        Android 9+ blocks cleartext HTTP unless the release manifest opts in.
+        Move production to HTTPS, then set cleartextTrafficPermitted="false".
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

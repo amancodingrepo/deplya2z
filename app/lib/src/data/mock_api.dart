@@ -1,10 +1,9 @@
-import 'dart:io' show Platform;
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/app_logger.dart';
 import '../core/models.dart';
 
 class MockApi {
@@ -12,10 +11,18 @@ class MockApi {
     : _dio = Dio(
         BaseOptions(
           baseUrl: _resolveBaseUrl(),
-          connectTimeout: const Duration(seconds: 8),
-          receiveTimeout: const Duration(seconds: 8),
+          connectTimeout: const Duration(seconds: 20),
+          sendTimeout: const Duration(seconds: 20),
+          receiveTimeout: const Duration(seconds: 30),
+          headers: const {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
         ),
-      );
+      ) {
+    AppLogger.info('API client configured', {'baseUrl': _dio.options.baseUrl});
+    _dio.interceptors.add(_NetworkLoggingInterceptor());
+  }
 
   final _uuid = const Uuid();
   final Dio _dio;
@@ -23,7 +30,7 @@ class MockApi {
   static String _resolveBaseUrl() {
     final configured = const String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://localhost:8080/v1',
+      defaultValue: 'http://69.62.84.211:8080/v1',
     );
 
     if (kIsWeb) {
@@ -35,16 +42,51 @@ class MockApi {
       return configured;
     }
 
+    _warnForUnsafeReleaseConfig(uri);
+
     // Android emulator cannot reach host machine through localhost.
-    if (Platform.isAndroid && uri.host == 'localhost') {
+    if (!kReleaseMode &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        uri.host == 'localhost') {
       return uri.replace(host: '10.0.2.2').toString();
     }
 
     return configured;
   }
 
+  static void _warnForUnsafeReleaseConfig(Uri uri) {
+    final host = uri.host.toLowerCase();
+    final isLocalHost =
+        host == 'localhost' || host == '127.0.0.1' || host == '10.0.2.2';
+
+    if (kReleaseMode && isLocalHost) {
+      AppLogger.error('Release build points to a local-only API host', context: {
+        'host': uri.host,
+        'fix': 'Build with --dart-define=API_BASE_URL=https://your-api/v1',
+      });
+    }
+
+    if (kReleaseMode && uri.scheme == 'http') {
+      AppLogger.warning('Release build uses cleartext HTTP API', {
+        'baseUrl': uri.toString(),
+        'fix': 'Use HTTPS for production when possible',
+      });
+    }
+  }
+
   String _errorMessage(Object error) {
     if (error is DioException) {
+      AppLogger.error(
+        'API request failed',
+        error: error,
+        stackTrace: error.stackTrace,
+        context: {
+          'type': error.type.name,
+          'method': error.requestOptions.method,
+          'url': error.requestOptions.uri,
+          'status': error.response?.statusCode,
+        },
+      );
       final data = error.response?.data;
       if (data is Map && data['message'] is String) {
         return data['message'] as String;
@@ -52,11 +94,39 @@ class MockApi {
       if (data is Map && data['code'] is String) {
         return data['code'] as String;
       }
+      final uri = error.requestOptions.uri;
+      final baseHint =
+          'API: ${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}';
+      if (error.type == DioExceptionType.connectionError) {
+        return 'Cannot reach backend ($baseHint). Check phone internet, server firewall/port, Android INTERNET permission, and HTTP cleartext policy.';
+      }
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.sendTimeout ||
+          error.type == DioExceptionType.receiveTimeout) {
+        return 'Backend timed out ($baseHint). Check server health, mobile network quality, firewall, and API response time.';
+      }
+      if (error.type == DioExceptionType.badCertificate) {
+        return 'SSL certificate rejected ($baseHint). Check HTTPS certificate chain, expiry, hostname, and TLS support.';
+      }
+      if (error.response?.statusCode != null) {
+        return 'Request failed with HTTP ${error.response!.statusCode} at ${error.requestOptions.path}.';
+      }
       if (error.message != null && error.message!.trim().isNotEmpty) {
         return error.message!;
       }
     }
     return error.toString();
+  }
+
+  Future<bool> healthCheck() async {
+    try {
+      final response = await _dio.get<dynamic>('/health');
+      return (response.statusCode ?? 500) >= 200 &&
+          (response.statusCode ?? 500) < 300;
+    } catch (error) {
+      AppLogger.warning('API health check failed', {'message': _errorMessage(error)});
+      return false;
+    }
   }
 
   Options _authOptions(String token, {String? idempotencyKey}) {
@@ -935,4 +1005,54 @@ class MockApi {
       syncStatus: SyncStatus.synced,
     ),
   ];
+}
+
+class _NetworkLoggingInterceptor extends Interceptor {
+  static const _startedAtKey = 'startedAt';
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    options.extra[_startedAtKey] = DateTime.now();
+    AppLogger.info('API request', {
+      'method': options.method,
+      'url': options.uri,
+      'hasAuth': options.headers.containsKey('Authorization'),
+    });
+    handler.next(options);
+  }
+
+  @override
+  void onResponse(Response<dynamic> response, ResponseInterceptorHandler handler) {
+    AppLogger.info('API response', {
+      'method': response.requestOptions.method,
+      'url': response.requestOptions.uri,
+      'status': response.statusCode,
+      'durationMs': _durationMs(response.requestOptions),
+    });
+    handler.next(response);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    AppLogger.error(
+      'API transport error',
+      error: err.message,
+      context: {
+        'method': err.requestOptions.method,
+        'url': err.requestOptions.uri,
+        'type': err.type.name,
+        'status': err.response?.statusCode,
+        'durationMs': _durationMs(err.requestOptions),
+      },
+    );
+    handler.next(err);
+  }
+
+  int? _durationMs(RequestOptions options) {
+    final startedAt = options.extra[_startedAtKey];
+    if (startedAt is! DateTime) {
+      return null;
+    }
+    return DateTime.now().difference(startedAt).inMilliseconds;
+  }
 }
