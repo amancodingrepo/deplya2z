@@ -516,7 +516,7 @@ class MockApi {
           'location_id': role == UserRole.superadmin ? null : locationId,
         },
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -534,7 +534,7 @@ class MockApi {
         options: _authOptions(token),
         data: {'status': active ? 'active' : 'inactive'},
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -584,7 +584,7 @@ class MockApi {
           'custom_style': 'default',
         },
       );
-      final productData = (productRes.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final productData = _safeMap(productRes.data?['data']);
       final productId = productData['id'] as String;
 
       // Step 2: upload image if provided
@@ -744,8 +744,16 @@ class MockApi {
         options: _authOptions(token),
       );
       final body = response.data ?? <String, dynamic>{};
-      final data = (body['data'] as Map<String, dynamic>?) ?? body;
-      return StaffRecordsBundle.fromJson(data);
+      // /staff/me returns {data: <staff_object | null>} — safe to cast as Map
+      final rawData = body['data'];
+      if (rawData is Map<String, dynamic>) {
+        return StaffRecordsBundle.fromJson(rawData);
+      }
+      return const StaffRecordsBundle(
+        attendance: [],
+        salaryPayouts: [],
+        leaveRecords: [],
+      );
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -764,8 +772,18 @@ class MockApi {
         options: _authOptions(token),
       );
       final body = response.data ?? <String, dynamic>{};
-      final data = (body['data'] as Map<String, dynamic>?) ?? body;
-      return StaffRecordsBundle.fromJson(data);
+      // /staff/records returns {data: [staff_member, ...]} — a List, not a bundle map.
+      // Check the type before casting to avoid "List is not a subtype of Map" crash.
+      final rawData = body['data'];
+      if (rawData is Map<String, dynamic>) {
+        return StaffRecordsBundle.fromJson(rawData);
+      }
+      // Backend returns a list of staff members — no attendance/salary/leave bundle yet.
+      return const StaffRecordsBundle(
+        attendance: [],
+        salaryPayouts: [],
+        leaveRecords: [],
+      );
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -787,7 +805,7 @@ class MockApi {
           'status': status.apiValue,
         },
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? (response.data ?? <String, dynamic>{});
+      final data = _safeMap(response.data?['data'] ?? response.data);
       return AttendanceRecord.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -842,7 +860,7 @@ class MockApi {
           if (notes != null) 'notes': notes,
         },
       );
-      final data = (response.data?['data'] ?? response.data) as Map<String, dynamic>? ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data'] ?? response.data);
       return StaffAttendanceRecord.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -867,7 +885,7 @@ class MockApi {
           if (notes != null) 'notes': notes,
         },
       );
-      final data = (response.data?['data'] ?? response.data) as Map<String, dynamic>? ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data'] ?? response.data);
       return StaffAttendanceRecord.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -991,7 +1009,7 @@ class MockApi {
             'related_entity_type': relatedEntityType,
         },
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return Task.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1016,7 +1034,7 @@ class MockApi {
           if (completionNote != null) 'completion_note': completionNote,
         },
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return Task.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1024,6 +1042,15 @@ class MockApi {
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
+
+  /// Safely coerce [value] to a Map. Returns an empty map if [value] is null,
+  /// a List, or any other non-Map type — prevents "List is not a subtype of
+  /// Map<String,dynamic>" TypeErrors on unexpected API responses.
+  static Map<String, dynamic> _safeMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return <String, dynamic>{};
+  }
 
   InventoryItem _inventoryFromApi(Map<String, dynamic> json) {
     return InventoryItem(
@@ -1269,7 +1296,7 @@ class MockApi {
           'custom_style': customStyle,
         },
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return Product.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1303,7 +1330,7 @@ class MockApi {
           if (customStyle != null) 'custom_style': customStyle,
         },
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return Product.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1420,7 +1447,7 @@ class MockApi {
         options: _authOptions(token),
         data: {'location_code': code, 'name': name, 'type': type, 'address': address},
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return AppLocation.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1446,7 +1473,7 @@ class MockApi {
           if (status != null) 'status': status,
         },
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return AppLocation.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1498,7 +1525,7 @@ class MockApi {
           'gst_number': gstNumber,
         },
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return Client.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1516,7 +1543,7 @@ class MockApi {
         options: _authOptions(token),
         data: {'status': status},
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return Client.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1544,7 +1571,7 @@ class MockApi {
           if (locationId != null) 'location_id': locationId,
         },
       );
-      final data = (response.data?['data'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data']);
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
