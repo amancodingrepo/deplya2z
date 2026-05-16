@@ -12,9 +12,9 @@ class StoreWarehouseApp extends ConsumerWidget {
     final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(
-      title: 'A2Z Supply Control Center',
+      title: 'Store & Warehouse Supply Management',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
+      theme: AppTheme.lightTheme,
       routerConfig: router,
     );
   }

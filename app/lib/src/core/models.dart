@@ -1,11 +1,37 @@
-enum UserRole { superadmin, warehouseManager, storeManager }
+enum UserRole { superadmin, warehouseManager, storeManager, staff }
+
+enum BulkOrderStatus { confirmed, packed, dispatched, completed, cancelled }
+
+extension BulkOrderStatusExt on BulkOrderStatus {
+  String get apiValue => switch (this) {
+    BulkOrderStatus.confirmed => 'confirmed',
+    BulkOrderStatus.packed => 'packed',
+    BulkOrderStatus.dispatched => 'dispatched',
+    BulkOrderStatus.completed => 'completed',
+    BulkOrderStatus.cancelled => 'cancelled',
+  };
+
+  String get label => switch (this) {
+    BulkOrderStatus.confirmed => 'Confirmed',
+    BulkOrderStatus.packed => 'Packed',
+    BulkOrderStatus.dispatched => 'Dispatched',
+    BulkOrderStatus.completed => 'Completed',
+    BulkOrderStatus.cancelled => 'Cancelled',
+  };
+
+  static BulkOrderStatus fromApi(String v) => switch (v) {
+    'confirmed' => BulkOrderStatus.confirmed,
+    'packed' => BulkOrderStatus.packed,
+    'dispatched' => BulkOrderStatus.dispatched,
+    'completed' => BulkOrderStatus.completed,
+    'cancelled' => BulkOrderStatus.cancelled,
+    _ => BulkOrderStatus.confirmed,
+  };
+}
 
 enum OrderStatus {
   draft,
   confirmed,
-  pendingWarehouseApproval,
-  warehouseApproved,
-  warehouseRejected,
   packed,
   dispatched,
   storeReceived,
@@ -13,79 +39,20 @@ enum OrderStatus {
   cancelled,
 }
 
-extension OrderStatusDisplay on OrderStatus {
-  /// Human-readable label for displaying order status
-  String get label {
-    return switch (this) {
-      OrderStatus.draft => 'Draft',
-      OrderStatus.confirmed => 'Confirmed',
-      OrderStatus.pendingWarehouseApproval => 'Pending Warehouse Approval',
-      OrderStatus.warehouseApproved => 'Warehouse Approved',
-      OrderStatus.warehouseRejected => 'Warehouse Rejected',
-      OrderStatus.packed => 'Packed',
-      OrderStatus.dispatched => 'Dispatched',
-      OrderStatus.storeReceived => 'Store Received',
-      OrderStatus.completed => 'Completed',
-      OrderStatus.cancelled => 'Cancelled',
-    };
-  }
-
-  /// Color indicator for order status
-  String get colorHint {
-    return switch (this) {
-      OrderStatus.draft => 'grey',
-      OrderStatus.confirmed => 'blue',
-      OrderStatus.pendingWarehouseApproval => 'amber',
-      OrderStatus.warehouseApproved => 'blue',
-      OrderStatus.warehouseRejected => 'red',
-      OrderStatus.packed => 'purple',
-      OrderStatus.dispatched => 'cyan',
-      OrderStatus.storeReceived => 'green',
-      OrderStatus.completed => 'green',
-      OrderStatus.cancelled => 'red',
-    };
-  }
-
-  /// Progress percentage for visual tracking (0-100)
-  int get progressPercent {
-    return switch (this) {
-      OrderStatus.draft => 0,
-      OrderStatus.confirmed => 20,
-      OrderStatus.pendingWarehouseApproval => 10,
-      OrderStatus.warehouseApproved => 30,
-      OrderStatus.warehouseRejected => 0,
-      OrderStatus.packed => 50,
-      OrderStatus.dispatched => 75,
-      OrderStatus.storeReceived => 90,
-      OrderStatus.completed => 100,
-      OrderStatus.cancelled => 0,
-    };
-  }
-}
-
-extension OrderStatusApi on OrderStatus {
-  static OrderStatus fromApi(String value) {
-    return switch (value) {
-      'draft' => OrderStatus.draft,
-      'confirmed' => OrderStatus.confirmed,
-      'pending_warehouse_approval' => OrderStatus.pendingWarehouseApproval,
-      'warehouse_approved' => OrderStatus.warehouseApproved,
-      'warehouse_rejected' => OrderStatus.warehouseRejected,
-      'packed' => OrderStatus.packed,
-      'dispatched' => OrderStatus.dispatched,
-      'store_received' => OrderStatus.storeReceived,
-      'completed' => OrderStatus.completed,
-      'cancelled' => OrderStatus.cancelled,
-      _ => OrderStatus.draft,
-    };
-  }
-}
-
 enum SyncStatus { local, synced, pendingUpload, failed }
 
-enum SyncActionType { createOrder, confirmReceive, markPacked, markDispatched }
+enum SyncActionType {
+  createOrder,
+  confirmReceive,
+  markPacked,
+  markDispatched,
+  checkIn,
+  checkOut,
+  startTask,
+  completeTask,
+}
 
-enum AttendanceStatus { present, absent, halfDay, leave }
+enum AttendanceStatus { present, absent, halfDay, leave, holiday }
 
 extension AttendanceStatusApi on AttendanceStatus {
   String get apiValue {
@@ -94,6 +61,7 @@ extension AttendanceStatusApi on AttendanceStatus {
       AttendanceStatus.absent => 'absent',
       AttendanceStatus.halfDay => 'half_day',
       AttendanceStatus.leave => 'leave',
+      AttendanceStatus.holiday => 'holiday',
     };
   }
 
@@ -103,6 +71,7 @@ extension AttendanceStatusApi on AttendanceStatus {
       AttendanceStatus.absent => 'Absent',
       AttendanceStatus.halfDay => 'Half Day',
       AttendanceStatus.leave => 'Leave',
+      AttendanceStatus.holiday => 'Holiday',
     };
   }
 
@@ -112,10 +81,90 @@ extension AttendanceStatusApi on AttendanceStatus {
       'absent' => AttendanceStatus.absent,
       'half_day' => AttendanceStatus.halfDay,
       'leave' => AttendanceStatus.leave,
+      'holiday' => AttendanceStatus.holiday,
       _ => AttendanceStatus.present,
     };
   }
 }
+
+// ─── Task enums ──────────────────────────────────────────────────────────────
+
+enum TaskPriority { low, medium, high, urgent }
+
+extension TaskPriorityExt on TaskPriority {
+  String get apiValue => switch (this) {
+    TaskPriority.low => 'low',
+    TaskPriority.medium => 'medium',
+    TaskPriority.high => 'high',
+    TaskPriority.urgent => 'urgent',
+  };
+
+  String get label => switch (this) {
+    TaskPriority.low => 'Low',
+    TaskPriority.medium => 'Medium',
+    TaskPriority.high => 'High',
+    TaskPriority.urgent => 'Urgent',
+  };
+
+  static TaskPriority fromApi(String v) => switch (v) {
+    'low' => TaskPriority.low,
+    'medium' => TaskPriority.medium,
+    'high' => TaskPriority.high,
+    'urgent' => TaskPriority.urgent,
+    _ => TaskPriority.medium,
+  };
+}
+
+enum TaskStatus { pending, inProgress, completed, cancelled }
+
+extension TaskStatusExt on TaskStatus {
+  String get apiValue => switch (this) {
+    TaskStatus.pending => 'pending',
+    TaskStatus.inProgress => 'in_progress',
+    TaskStatus.completed => 'completed',
+    TaskStatus.cancelled => 'cancelled',
+  };
+
+  String get label => switch (this) {
+    TaskStatus.pending => 'Pending',
+    TaskStatus.inProgress => 'In Progress',
+    TaskStatus.completed => 'Completed',
+    TaskStatus.cancelled => 'Cancelled',
+  };
+
+  static TaskStatus fromApi(String v) => switch (v) {
+    'pending' => TaskStatus.pending,
+    'in_progress' => TaskStatus.inProgress,
+    'completed' => TaskStatus.completed,
+    'cancelled' => TaskStatus.cancelled,
+    _ => TaskStatus.pending,
+  };
+}
+
+enum StaffStatus { active, inactive, onLeave }
+
+extension StaffStatusExt on StaffStatus {
+  String get apiValue => switch (this) {
+    StaffStatus.active => 'active',
+    StaffStatus.inactive => 'inactive',
+    StaffStatus.onLeave => 'on_leave',
+  };
+
+  String get label => switch (this) {
+    StaffStatus.active => 'Active',
+    StaffStatus.inactive => 'Inactive',
+    StaffStatus.onLeave => 'On Leave',
+  };
+
+  static StaffStatus fromApi(String v) => switch (v) {
+    'active' => StaffStatus.active,
+    'inactive' => StaffStatus.inactive,
+    'on_leave' => StaffStatus.onLeave,
+    _ => StaffStatus.active,
+  };
+}
+
+// ─── Core session ─────────────────────────────────────────────────────────────
 
 class UserSession {
   const UserSession({
@@ -161,6 +210,8 @@ class UserSession {
   );
 }
 
+// ─── Orders ──────────────────────────────────────────────────────────────────
+
 class OrderItem {
   const OrderItem({
     required this.productId,
@@ -194,117 +245,56 @@ class StoreOrder {
     required this.id,
     required this.orderId,
     required this.storeId,
-    required this.storeName,
     required this.warehouseId,
-    required this.warehouseName,
     required this.status,
     required this.items,
     required this.reservedAmount,
     required this.createdAt,
     required this.updatedAt,
     required this.syncStatus,
-    this.requestedByName,
-    this.approvedByName,
-    this.rejectedByName,
     this.rejectionReason,
-    this.pendingAt,
-    this.approvedAt,
-    this.rejectedAt,
-    this.packedAt,
-    this.dispatchedAt,
-    this.receivedAt,
-    this.completedAt,
+    this.dispatchNotes,
+    this.createdByName,
   });
 
   final String id;
-  final String orderId; // Human-readable like ORD-WH01-ST01-20260420-001
+  final String orderId;
   final String storeId;
-  final String storeName;
   final String warehouseId;
-  final String warehouseName;
   final OrderStatus status;
   final List<OrderItem> items;
   final int reservedAmount;
   final DateTime createdAt;
   final DateTime updatedAt;
   final SyncStatus syncStatus;
-  final String? requestedByName;
-  final String? approvedByName;
-  final String? rejectedByName;
   final String? rejectionReason;
-  final DateTime? pendingAt;
-  final DateTime? approvedAt;
-  final DateTime? rejectedAt;
-  final DateTime? packedAt;
-  final DateTime? dispatchedAt;
-  final DateTime? receivedAt;
-  final DateTime? completedAt;
+  final String? dispatchNotes;
+  final String? createdByName;
 
-  /// Get current step in workflow (1-8 or 0 if rejected/cancelled)
-  int get currentStep {
-    return switch (status) {
-      OrderStatus.draft => 1,
-      OrderStatus.confirmed => 2,
-      OrderStatus.pendingWarehouseApproval => 1,
-      OrderStatus.warehouseApproved => 2,
-      OrderStatus.packed => 3,
-      OrderStatus.dispatched => 4,
-      OrderStatus.storeReceived => 5,
-      OrderStatus.completed => 6,
-      OrderStatus.warehouseRejected => 0,
-      OrderStatus.cancelled => 0,
-    };
-  }
-
-  /// Get total workflow steps
-  static const int totalSteps = 6;
-
-  /// Check if order is in warehouse's action phase
-  bool get isWarehouseResponsible =>
-      status == OrderStatus.draft ||
-      status == OrderStatus.confirmed ||
-      status == OrderStatus.pendingWarehouseApproval ||
-      status == OrderStatus.warehouseApproved ||
-      status == OrderStatus.packed ||
-      status == OrderStatus.dispatched;
-
-  /// Check if order is in store's action phase
-  bool get isStoreResponsible =>
-      status == OrderStatus.dispatched || status == OrderStatus.storeReceived;
+  int get totalUnits => items.fold(0, (sum, i) => sum + i.quantity);
 
   StoreOrder copyWith({
     OrderStatus? status,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
     List<OrderItem>? items,
-    String? approvedByName,
-    String? rejectedByName,
     String? rejectionReason,
+    String? dispatchNotes,
   }) {
     return StoreOrder(
       id: id,
       orderId: orderId,
       storeId: storeId,
-      storeName: storeName,
       warehouseId: warehouseId,
-      warehouseName: warehouseName,
       status: status ?? this.status,
       items: items ?? this.items,
       reservedAmount: reservedAmount,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncStatus: syncStatus ?? this.syncStatus,
-      requestedByName: requestedByName,
-      approvedByName: approvedByName ?? this.approvedByName,
-      rejectedByName: rejectedByName ?? this.rejectedByName,
       rejectionReason: rejectionReason ?? this.rejectionReason,
-      pendingAt: pendingAt,
-      approvedAt: approvedAt,
-      rejectedAt: rejectedAt,
-      packedAt: packedAt,
-      dispatchedAt: dispatchedAt,
-      receivedAt: receivedAt,
-      completedAt: completedAt,
+      dispatchNotes: dispatchNotes ?? this.dispatchNotes,
+      createdByName: createdByName,
     );
   }
 
@@ -312,36 +302,21 @@ class StoreOrder {
     'id': id,
     'orderId': orderId,
     'storeId': storeId,
-    'storeName': storeName,
     'warehouseId': warehouseId,
-    'warehouseName': warehouseName,
     'status': status.name,
     'items': items.map((e) => e.toJson()).toList(),
     'reservedAmount': reservedAmount,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'syncStatus': syncStatus.name,
-    'requestedByName': requestedByName,
-    'approvedByName': approvedByName,
-    'rejectedByName': rejectedByName,
-    'rejectionReason': rejectionReason,
-    'pendingAt': pendingAt?.toIso8601String(),
-    'approvedAt': approvedAt?.toIso8601String(),
-    'rejectedAt': rejectedAt?.toIso8601String(),
-    'packedAt': packedAt?.toIso8601String(),
-    'dispatchedAt': dispatchedAt?.toIso8601String(),
-    'receivedAt': receivedAt?.toIso8601String(),
-    'completedAt': completedAt?.toIso8601String(),
   };
 
   factory StoreOrder.fromJson(Map<dynamic, dynamic> json) => StoreOrder(
     id: json['id'] as String,
     orderId: json['orderId'] as String,
     storeId: json['storeId'] as String,
-    storeName: (json['storeName'] ?? 'Store') as String,
     warehouseId: json['warehouseId'] as String,
-    warehouseName: (json['warehouseName'] ?? 'Warehouse') as String,
-    status: OrderStatusApi.fromApi((json['status'] ?? 'draft') as String),
+    status: OrderStatus.values.byName(json['status'] as String),
     items: (json['items'] as List<dynamic>)
         .map((e) => OrderItem.fromJson(e as Map<dynamic, dynamic>))
         .toList(),
@@ -349,33 +324,10 @@ class StoreOrder {
     createdAt: DateTime.parse(json['createdAt'] as String),
     updatedAt: DateTime.parse(json['updatedAt'] as String),
     syncStatus: SyncStatus.values.byName(json['syncStatus'] as String),
-    requestedByName: json['requestedByName'] as String?,
-    approvedByName: json['approvedByName'] as String?,
-    rejectedByName: json['rejectedByName'] as String?,
-    rejectionReason: json['rejectionReason'] as String?,
-    pendingAt: json['pendingAt'] != null
-        ? DateTime.tryParse(json['pendingAt'] as String)
-        : null,
-    approvedAt: json['approvedAt'] != null
-        ? DateTime.tryParse(json['approvedAt'] as String)
-        : null,
-    rejectedAt: json['rejectedAt'] != null
-        ? DateTime.tryParse(json['rejectedAt'] as String)
-        : null,
-    packedAt: json['packedAt'] != null
-        ? DateTime.tryParse(json['packedAt'] as String)
-        : null,
-    dispatchedAt: json['dispatchedAt'] != null
-        ? DateTime.tryParse(json['dispatchedAt'] as String)
-        : null,
-    receivedAt: json['receivedAt'] != null
-        ? DateTime.tryParse(json['receivedAt'] as String)
-        : null,
-    completedAt: json['completedAt'] != null
-        ? DateTime.tryParse(json['completedAt'] as String)
-        : null,
   );
 }
+
+// ─── Products & Inventory ─────────────────────────────────────────────────────
 
 class Product {
   const Product({
@@ -402,8 +354,7 @@ class Product {
   final String model;
   final String color;
   final String status; // present | inactive | discontinued
-  final String
-  customStyle; // default | premium | featured | sale | catalogue_ready
+  final String customStyle; // default | premium | featured | sale | catalogue_ready
   final String? imageUrl;
   final String? localImagePath;
 
@@ -449,9 +400,8 @@ class Product {
     model: (json['model'] ?? '') as String,
     color: (json['color'] ?? '') as String,
     status: (json['status'] ?? 'present') as String,
-    customStyle:
-        (json['customStyle'] ?? json['custom_style'] ?? 'default') as String,
-    imageUrl: (json['imageUrl'] ?? json['image_url']) as String?,
+    customStyle: (json['customStyle'] ?? json['custom_style'] ?? 'default') as String,
+    imageUrl: json['imageUrl'] as String?,
     localImagePath: json['localImagePath'] as String?,
   );
 }
@@ -545,146 +495,7 @@ class InventoryItem {
   );
 }
 
-enum CatalogEntryType { category, device, model, color }
-
-extension CatalogEntryTypeDisplay on CatalogEntryType {
-  String get label {
-    return switch (this) {
-      CatalogEntryType.category => 'Category',
-      CatalogEntryType.device => 'Device',
-      CatalogEntryType.model => 'Model',
-      CatalogEntryType.color => 'Color',
-    };
-  }
-}
-
-class InventoryCatalog {
-  const InventoryCatalog({
-    required this.categories,
-    required this.devices,
-    required this.models,
-    required this.colors,
-  });
-
-  final List<String> categories;
-  final List<String> devices;
-  final List<String> models;
-  final List<String> colors;
-
-  static const empty = InventoryCatalog(
-    categories: <String>[],
-    devices: <String>[],
-    models: <String>[],
-    colors: <String>[],
-  );
-
-  List<String> valuesFor(CatalogEntryType type) {
-    return switch (type) {
-      CatalogEntryType.category => categories,
-      CatalogEntryType.device => devices,
-      CatalogEntryType.model => models,
-      CatalogEntryType.color => colors,
-    };
-  }
-
-  InventoryCatalog copyWith({
-    List<String>? categories,
-    List<String>? devices,
-    List<String>? models,
-    List<String>? colors,
-  }) {
-    return InventoryCatalog(
-      categories: categories ?? this.categories,
-      devices: devices ?? this.devices,
-      models: models ?? this.models,
-      colors: colors ?? this.colors,
-    );
-  }
-
-  InventoryCatalog addValue(CatalogEntryType type, String value) {
-    final normalized = _normalizedCatalogValues([...valuesFor(type), value]);
-    return switch (type) {
-      CatalogEntryType.category => copyWith(categories: normalized),
-      CatalogEntryType.device => copyWith(devices: normalized),
-      CatalogEntryType.model => copyWith(models: normalized),
-      CatalogEntryType.color => copyWith(colors: normalized),
-    };
-  }
-
-  InventoryCatalog merge({
-    Iterable<Product> products = const <Product>[],
-    Iterable<InventoryItem> inventory = const <InventoryItem>[],
-  }) {
-    return InventoryCatalog(
-      categories: _normalizedCatalogValues([
-        ...categories,
-        ...products.map((item) => item.category),
-        ...inventory.map((item) => item.category),
-      ]),
-      devices: _normalizedCatalogValues([
-        ...devices,
-        ...products.map((item) => item.title),
-        ...inventory.map((item) => item.title),
-      ]),
-      models: _normalizedCatalogValues([
-        ...models,
-        ...products.map((item) => item.model),
-        ...inventory.map((item) => item.model),
-      ]),
-      colors: _normalizedCatalogValues([
-        ...colors,
-        ...products.map((item) => item.color),
-        ...inventory.map((item) => item.color),
-      ]),
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-    'categories': categories,
-    'devices': devices,
-    'models': models,
-    'colors': colors,
-  };
-
-  factory InventoryCatalog.fromJson(Map<dynamic, dynamic> json) =>
-      InventoryCatalog(
-        categories: _normalizedCatalogValues(
-          (json['categories'] as List<dynamic>? ?? const <dynamic>[]).map(
-            (value) => value.toString(),
-          ),
-        ),
-        devices: _normalizedCatalogValues(
-          (json['devices'] as List<dynamic>? ?? const <dynamic>[]).map(
-            (value) => value.toString(),
-          ),
-        ),
-        models: _normalizedCatalogValues(
-          (json['models'] as List<dynamic>? ?? const <dynamic>[]).map(
-            (value) => value.toString(),
-          ),
-        ),
-        colors: _normalizedCatalogValues(
-          (json['colors'] as List<dynamic>? ?? const <dynamic>[]).map(
-            (value) => value.toString(),
-          ),
-        ),
-      );
-}
-
-List<String> _normalizedCatalogValues(Iterable<String> values) {
-  final uniqueByLower = <String, String>{};
-  for (final raw in values) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) {
-      continue;
-    }
-    uniqueByLower.putIfAbsent(trimmed.toLowerCase(), () => trimmed);
-  }
-
-  final normalized = uniqueByLower.values.toList(growable: false);
-  normalized.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-  return normalized;
-}
+// ─── Sync ─────────────────────────────────────────────────────────────────────
 
 class SyncAction {
   const SyncAction({
@@ -739,15 +550,15 @@ class SyncAction {
     id: json['id'] as String,
     type: SyncActionType.values.byName(json['type'] as String),
     entityId: json['entityId'] as String,
-    payload: Map<String, dynamic>.from(
-      json['payload'] as Map<dynamic, dynamic>,
-    ),
+    payload: Map<String, dynamic>.from(json['payload'] as Map<dynamic, dynamic>),
     createdAt: DateTime.parse(json['createdAt'] as String),
     status: SyncStatus.values.byName(json['status'] as String),
     retryCount: json['retryCount'] as int,
     errorMessage: json['errorMessage'] as String?,
   );
 }
+
+// ─── Locations & Users ────────────────────────────────────────────────────────
 
 class AppLocation {
   const AppLocation({
@@ -756,6 +567,9 @@ class AppLocation {
     required this.name,
     required this.type,
     required this.status,
+    this.geoLat,
+    this.geoLng,
+    this.geofenceRadius,
   });
 
   final String id;
@@ -763,6 +577,9 @@ class AppLocation {
   final String name;
   final String type;
   final String status;
+  final double? geoLat;
+  final double? geoLng;
+  final int? geofenceRadius; // meters
 
   factory AppLocation.fromJson(Map<dynamic, dynamic> json) => AppLocation(
     id: json['id'] as String,
@@ -770,6 +587,9 @@ class AppLocation {
     name: json['name'] as String,
     type: json['type'] as String,
     status: (json['status'] ?? 'active') as String,
+    geoLat: (json['geo_lat'] as num?)?.toDouble(),
+    geoLng: (json['geo_lng'] as num?)?.toDouble(),
+    geofenceRadius: (json['geofence_radius'] as num?)?.toInt(),
   );
 }
 
@@ -798,6 +618,7 @@ class EmployeeUser {
     UserRole.superadmin => 'Superadmin',
     UserRole.warehouseManager => 'Warehouse Manager',
     UserRole.storeManager => 'Store Manager',
+    UserRole.staff => 'Staff',
   };
 
   bool get isActive => status == 'active';
@@ -809,16 +630,376 @@ class EmployeeUser {
     role: switch (json['role'] as String) {
       'superadmin' => UserRole.superadmin,
       'warehouse_manager' => UserRole.warehouseManager,
+      'store_manager' => UserRole.storeManager,
+      'staff' => UserRole.staff,
       _ => UserRole.storeManager,
     },
     status: (json['status'] ?? 'active') as String,
     locationId: json['location_id'] as String?,
     locationName: json['location_name'] as String?,
-    createdAt:
-        DateTime.tryParse((json['created_at'] ?? '') as String) ??
-        DateTime.now(),
+    createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ?? DateTime.now(),
   );
 }
+
+// ─── Staff Member ─────────────────────────────────────────────────────────────
+
+class StaffMember {
+  const StaffMember({
+    required this.id,
+    required this.userId,
+    required this.name,
+    required this.email,
+    required this.locationId,
+    required this.locationName,
+    required this.locationCode,
+    required this.employeeCode,
+    required this.designation,
+    required this.joiningDate,
+    required this.workingDaysPerWeek,
+    required this.status,
+    this.todayAttendance,
+    this.openTaskCount = 0,
+    this.phone,
+  });
+
+  final String id;
+  final String userId;
+  final String name;
+  final String email;
+  final String locationId;
+  final String locationName;
+  final String locationCode;
+  final String employeeCode;
+  final String designation;
+  final DateTime joiningDate;
+  final int workingDaysPerWeek;
+  final StaffStatus status;
+  final StaffAttendanceRecord? todayAttendance;
+  final int openTaskCount;
+  final String? phone;
+
+  String get initials {
+    final parts = name.trim().split(' ').where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0][0].toUpperCase();
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  }
+
+  factory StaffMember.fromJson(Map<dynamic, dynamic> json) => StaffMember(
+    id: json['id'] as String,
+    userId: (json['user_id'] ?? '') as String,
+    name: (json['name'] ?? '') as String,
+    email: (json['email'] ?? '') as String,
+    locationId: (json['location_id'] ?? '') as String,
+    locationName: (json['location_name'] ?? '') as String,
+    locationCode: (json['location_code'] ?? '') as String,
+    employeeCode: (json['employee_code'] ?? '') as String,
+    designation: (json['designation'] ?? '') as String,
+    joiningDate: DateTime.tryParse((json['joining_date'] ?? '') as String) ?? DateTime.now(),
+    workingDaysPerWeek: (json['working_days_per_week'] as num?)?.toInt() ?? 6,
+    status: StaffStatusExt.fromApi((json['status'] ?? 'active') as String),
+    phone: json['phone'] as String?,
+    openTaskCount: (json['open_task_count'] as num?)?.toInt() ?? 0,
+    todayAttendance: json['today_attendance'] != null
+        ? StaffAttendanceRecord.fromJson(json['today_attendance'] as Map<dynamic, dynamic>)
+        : null,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'user_id': userId,
+    'name': name,
+    'email': email,
+    'location_id': locationId,
+    'location_name': locationName,
+    'location_code': locationCode,
+    'employee_code': employeeCode,
+    'designation': designation,
+    'joining_date': joiningDate.toIso8601String(),
+    'working_days_per_week': workingDaysPerWeek,
+    'status': status.apiValue,
+    'phone': phone,
+    'open_task_count': openTaskCount,
+  };
+}
+
+// ─── Attendance (GPS-aware) ───────────────────────────────────────────────────
+
+class StaffAttendanceRecord {
+  const StaffAttendanceRecord({
+    required this.id,
+    required this.staffId,
+    required this.date,
+    required this.status,
+    this.checkInTime,
+    this.checkOutTime,
+    this.checkInLat,
+    this.checkInLng,
+    this.checkOutLat,
+    this.checkOutLng,
+    this.checkInDistanceMeters,
+    this.checkOutDistanceMeters,
+    this.isWithinGeofence = true,
+    this.isLate = false,
+    this.lateByMinutes = 0,
+    this.notes,
+    this.staffName,
+  });
+
+  final String id;
+  final String staffId;
+  final DateTime date;
+  final AttendanceStatus status;
+  final DateTime? checkInTime;
+  final DateTime? checkOutTime;
+  final double? checkInLat;
+  final double? checkInLng;
+  final double? checkOutLat;
+  final double? checkOutLng;
+  final int? checkInDistanceMeters;
+  final int? checkOutDistanceMeters;
+  final bool isWithinGeofence;
+  final bool isLate;
+  final int lateByMinutes;
+  final String? notes;
+  final String? staffName;
+
+  bool get isCheckedIn => checkInTime != null;
+  bool get isCheckedOut => checkOutTime != null;
+  bool get isComplete => isCheckedIn && isCheckedOut;
+
+  Duration get workedDuration {
+    if (!isCheckedIn || !isCheckedOut) return Duration.zero;
+    return checkOutTime!.difference(checkInTime!);
+  }
+
+  String get workedDurationString {
+    final d = workedDuration;
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    return '${h}h ${m}m';
+  }
+
+  factory StaffAttendanceRecord.fromJson(Map<dynamic, dynamic> json) =>
+      StaffAttendanceRecord(
+        id: json['id'] as String,
+        staffId: (json['staff_id'] ?? '') as String,
+        date: DateTime.tryParse((json['date'] ?? '') as String) ?? DateTime.now(),
+        status: AttendanceStatusApi.fromApi((json['status'] ?? 'present') as String),
+        checkInTime: json['check_in_time'] != null
+            ? DateTime.tryParse(json['check_in_time'] as String)
+            : null,
+        checkOutTime: json['check_out_time'] != null
+            ? DateTime.tryParse(json['check_out_time'] as String)
+            : null,
+        checkInLat: (json['check_in_lat'] as num?)?.toDouble(),
+        checkInLng: (json['check_in_lng'] as num?)?.toDouble(),
+        checkOutLat: (json['check_out_lat'] as num?)?.toDouble(),
+        checkOutLng: (json['check_out_lng'] as num?)?.toDouble(),
+        checkInDistanceMeters: (json['check_in_distance_meters'] as num?)?.toInt(),
+        checkOutDistanceMeters: (json['check_out_distance_meters'] as num?)?.toInt(),
+        isWithinGeofence: (json['is_within_geofence'] as bool?) ?? true,
+        isLate: (json['is_late'] as bool?) ?? false,
+        lateByMinutes: (json['late_by_minutes'] as num?)?.toInt() ?? 0,
+        notes: json['notes'] as String?,
+        staffName: json['staff_name'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'staff_id': staffId,
+    'date': date.toIso8601String().split('T')[0],
+    'status': status.apiValue,
+    'check_in_time': checkInTime?.toIso8601String(),
+    'check_out_time': checkOutTime?.toIso8601String(),
+    'check_in_lat': checkInLat,
+    'check_in_lng': checkInLng,
+    'check_out_lat': checkOutLat,
+    'check_out_lng': checkOutLng,
+    'check_in_distance_meters': checkInDistanceMeters,
+    'check_out_distance_meters': checkOutDistanceMeters,
+    'is_within_geofence': isWithinGeofence,
+    'is_late': isLate,
+    'late_by_minutes': lateByMinutes,
+    'notes': notes,
+    'staff_name': staffName,
+  };
+}
+
+class AttendanceMonthlySummary {
+  const AttendanceMonthlySummary({
+    required this.staffId,
+    required this.staffName,
+    required this.month,
+    required this.year,
+    required this.presentDays,
+    required this.absentDays,
+    required this.lateDays,
+    required this.halfDays,
+    required this.leaveDays,
+    required this.workingDays,
+  });
+
+  final String staffId;
+  final String staffName;
+  final int month;
+  final int year;
+  final int presentDays;
+  final int absentDays;
+  final int lateDays;
+  final int halfDays;
+  final int leaveDays;
+  final int workingDays;
+
+  int get totalPresent => presentDays + lateDays;
+
+  factory AttendanceMonthlySummary.fromJson(Map<dynamic, dynamic> json) =>
+      AttendanceMonthlySummary(
+        staffId: (json['staff_id'] ?? '') as String,
+        staffName: (json['staff_name'] ?? '') as String,
+        month: (json['month'] as num?)?.toInt() ?? DateTime.now().month,
+        year: (json['year'] as num?)?.toInt() ?? DateTime.now().year,
+        presentDays: (json['present_days'] as num?)?.toInt() ?? 0,
+        absentDays: (json['absent_days'] as num?)?.toInt() ?? 0,
+        lateDays: (json['late_days'] as num?)?.toInt() ?? 0,
+        halfDays: (json['half_days'] as num?)?.toInt() ?? 0,
+        leaveDays: (json['leave_days'] as num?)?.toInt() ?? 0,
+        workingDays: (json['working_days'] as num?)?.toInt() ?? 26,
+      );
+}
+
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+
+class Task {
+  const Task({
+    required this.id,
+    required this.taskCode,
+    required this.title,
+    required this.description,
+    required this.locationId,
+    required this.assignedToId,
+    required this.assignedToName,
+    required this.assignedById,
+    required this.assignedByName,
+    required this.priority,
+    required this.status,
+    required this.dueDate,
+    required this.createdAt,
+    this.completedAt,
+    this.completionNote,
+    this.relatedOrderId,
+    this.relatedEntityType,
+    this.syncStatus = SyncStatus.synced,
+  });
+
+  final String id;
+  final String taskCode;
+  final String title;
+  final String description;
+  final String locationId;
+  final String assignedToId;
+  final String assignedToName;
+  final String assignedById;
+  final String assignedByName;
+  final TaskPriority priority;
+  final TaskStatus status;
+  final DateTime dueDate;
+  final DateTime createdAt;
+  final DateTime? completedAt;
+  final String? completionNote;
+  final String? relatedOrderId;
+  final String? relatedEntityType;
+  final SyncStatus syncStatus;
+
+  bool get isOverdue =>
+      status != TaskStatus.completed &&
+      status != TaskStatus.cancelled &&
+      dueDate.isBefore(DateTime.now());
+
+  bool get isDueToday {
+    final today = DateTime.now();
+    return dueDate.year == today.year &&
+        dueDate.month == today.month &&
+        dueDate.day == today.day;
+  }
+
+  Task copyWith({
+    TaskStatus? status,
+    DateTime? completedAt,
+    String? completionNote,
+    SyncStatus? syncStatus,
+  }) {
+    return Task(
+      id: id,
+      taskCode: taskCode,
+      title: title,
+      description: description,
+      locationId: locationId,
+      assignedToId: assignedToId,
+      assignedToName: assignedToName,
+      assignedById: assignedById,
+      assignedByName: assignedByName,
+      priority: priority,
+      status: status ?? this.status,
+      dueDate: dueDate,
+      createdAt: createdAt,
+      completedAt: completedAt ?? this.completedAt,
+      completionNote: completionNote ?? this.completionNote,
+      relatedOrderId: relatedOrderId,
+      relatedEntityType: relatedEntityType,
+      syncStatus: syncStatus ?? this.syncStatus,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'task_code': taskCode,
+    'title': title,
+    'description': description,
+    'location_id': locationId,
+    'assigned_to_id': assignedToId,
+    'assigned_to_name': assignedToName,
+    'assigned_by_id': assignedById,
+    'assigned_by_name': assignedByName,
+    'priority': priority.apiValue,
+    'status': status.apiValue,
+    'due_date': dueDate.toIso8601String().split('T')[0],
+    'created_at': createdAt.toIso8601String(),
+    'completed_at': completedAt?.toIso8601String(),
+    'completion_note': completionNote,
+    'related_order_id': relatedOrderId,
+    'related_entity_type': relatedEntityType,
+    'sync_status': syncStatus.name,
+  };
+
+  factory Task.fromJson(Map<dynamic, dynamic> json) => Task(
+    id: json['id'] as String,
+    taskCode: (json['task_code'] ?? '') as String,
+    title: (json['title'] ?? '') as String,
+    description: (json['description'] ?? '') as String,
+    locationId: (json['location_id'] ?? '') as String,
+    assignedToId: (json['assigned_to_id'] ?? json['assigned_to'] ?? '') as String,
+    assignedToName: (json['assigned_to_name'] ?? '') as String,
+    assignedById: (json['assigned_by_id'] ?? json['assigned_by'] ?? '') as String,
+    assignedByName: (json['assigned_by_name'] ?? '') as String,
+    priority: TaskPriorityExt.fromApi((json['priority'] ?? 'medium') as String),
+    status: TaskStatusExt.fromApi((json['status'] ?? 'pending') as String),
+    dueDate: DateTime.tryParse((json['due_date'] ?? '') as String) ??
+        DateTime.now().add(const Duration(days: 1)),
+    createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ?? DateTime.now(),
+    completedAt: json['completed_at'] != null
+        ? DateTime.tryParse(json['completed_at'] as String)
+        : null,
+    completionNote: json['completion_note'] as String?,
+    relatedOrderId: json['related_order_id'] as String?,
+    relatedEntityType: json['related_entity_type'] as String?,
+    syncStatus: json['sync_status'] != null
+        ? SyncStatus.values.byName(json['sync_status'] as String)
+        : SyncStatus.synced,
+  );
+}
+
+// ─── Legacy staff records (kept for backward compatibility) ───────────────────
 
 class AttendanceRecord {
   const AttendanceRecord({
@@ -845,12 +1026,8 @@ class AttendanceRecord {
         userId: json['user_id'] as String,
         userName: (json['user_name'] ?? '') as String,
         attendanceDate: DateTime.parse(json['attendance_date'] as String),
-        status: AttendanceStatusApi.fromApi(
-          (json['status'] ?? 'present') as String,
-        ),
-        markedAt:
-            DateTime.tryParse((json['marked_at'] ?? '') as String) ??
-            DateTime.now(),
+        status: AttendanceStatusApi.fromApi((json['status'] ?? 'present') as String),
+        markedAt: DateTime.tryParse((json['marked_at'] ?? '') as String) ?? DateTime.now(),
         locationName: json['location_name'] as String?,
       );
 }
@@ -928,6 +1105,263 @@ class LeaveRecord {
   );
 }
 
+// ─── Cart (Store Manager multi-item ordering) ─────────────────────────────────
+
+class CartItem {
+  const CartItem({
+    required this.productId,
+    required this.title,
+    required this.sku,
+    required this.brand,
+    required this.quantity,
+    required this.availableStock,
+    this.imageUrl,
+  });
+
+  final String productId;
+  final String title;
+  final String sku;
+  final String brand;
+  final int quantity;
+  final int availableStock;
+  final String? imageUrl;
+
+  CartItem copyWith({int? quantity}) => CartItem(
+    productId: productId,
+    title: title,
+    sku: sku,
+    brand: brand,
+    quantity: quantity ?? this.quantity,
+    availableStock: availableStock,
+    imageUrl: imageUrl,
+  );
+}
+
+// ─── Bulk Orders ──────────────────────────────────────────────────────────────
+
+class BulkOrder {
+  const BulkOrder({
+    required this.id,
+    required this.orderId,
+    required this.clientId,
+    required this.clientName,
+    required this.warehouseId,
+    required this.status,
+    required this.items,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String orderId;
+  final String clientId;
+  final String clientName;
+  final String warehouseId;
+  final BulkOrderStatus status;
+  final List<OrderItem> items;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  int get totalUnits => items.fold(0, (sum, i) => sum + i.quantity);
+
+  BulkOrder copyWith({BulkOrderStatus? status, DateTime? updatedAt}) =>
+      BulkOrder(
+        id: id,
+        orderId: orderId,
+        clientId: clientId,
+        clientName: clientName,
+        warehouseId: warehouseId,
+        status: status ?? this.status,
+        items: items,
+        createdAt: createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+
+  factory BulkOrder.fromJson(Map<dynamic, dynamic> json) {
+    final rawStatus = (json['status'] ?? 'confirmed') as String;
+    final items = (json['items'] as List<dynamic>? ?? const <dynamic>[])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .map(
+          (it) => OrderItem(
+            productId: it['product_id'] as String,
+            title: (it['title'] ?? it['product_id'] ?? 'Unknown') as String,
+            sku: (it['sku'] ?? 'NA') as String,
+            quantity: (it['qty'] as num).toInt(),
+          ),
+        )
+        .toList();
+
+    return BulkOrder(
+      id: json['id'] as String,
+      orderId: (json['order_id'] ?? json['id']) as String,
+      clientId: (json['client_id'] ?? '') as String,
+      clientName: (json['client_name'] ?? json['client'] ?? 'Client') as String,
+      warehouseId: (json['warehouse_id'] ?? 'WH01') as String,
+      status: BulkOrderStatusExt.fromApi(rawStatus),
+      items: items,
+      createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ?? DateTime.now(),
+      updatedAt: DateTime.tryParse((json['updated_at'] ?? '') as String) ?? DateTime.now(),
+    );
+  }
+}
+
+// ─── Clients ──────────────────────────────────────────────────────────────────
+
+class Client {
+  const Client({
+    required this.id,
+    required this.name,
+    required this.code,
+    required this.contactName,
+    required this.contactEmail,
+    required this.phone,
+    required this.address,
+    required this.city,
+    required this.gstNumber,
+    required this.status,
+    required this.orderCount,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final String code;
+  final String contactName;
+  final String contactEmail;
+  final String phone;
+  final String address;
+  final String city;
+  final String gstNumber;
+  final String status; // active | inactive | blocked
+  final int orderCount;
+  final DateTime createdAt;
+
+  bool get isActive => status == 'active';
+
+  Client copyWith({String? status}) => Client(
+    id: id,
+    name: name,
+    code: code,
+    contactName: contactName,
+    contactEmail: contactEmail,
+    phone: phone,
+    address: address,
+    city: city,
+    gstNumber: gstNumber,
+    status: status ?? this.status,
+    orderCount: orderCount,
+    createdAt: createdAt,
+  );
+
+  factory Client.fromJson(Map<dynamic, dynamic> json) => Client(
+    id: json['id'] as String,
+    name: (json['name'] ?? '') as String,
+    code: (json['code'] ?? '') as String,
+    contactName: (json['contact_name'] ?? '') as String,
+    contactEmail: (json['contact_email'] ?? '') as String,
+    phone: (json['phone'] ?? '') as String,
+    address: (json['address'] ?? '') as String,
+    city: (json['city'] ?? '') as String,
+    gstNumber: (json['gst_number'] ?? '') as String,
+    status: (json['status'] ?? 'active') as String,
+    orderCount: (json['order_count'] as num?)?.toInt() ?? 0,
+    createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ?? DateTime.now(),
+  );
+}
+
+// ─── Stock Movement ───────────────────────────────────────────────────────────
+
+class StockMovement {
+  const StockMovement({
+    required this.id,
+    required this.productId,
+    required this.sku,
+    required this.title,
+    required this.locationId,
+    required this.quantityChange,
+    required this.reason,
+    required this.movedAt,
+    required this.movedByName,
+    this.notes,
+  });
+
+  final String id;
+  final String productId;
+  final String sku;
+  final String title;
+  final String locationId;
+  final int quantityChange;
+  final String reason;
+  final DateTime movedAt;
+  final String movedByName;
+  final String? notes;
+
+  factory StockMovement.fromJson(Map<dynamic, dynamic> json) => StockMovement(
+    id: json['id'] as String,
+    productId: (json['product_id'] ?? '') as String,
+    sku: (json['sku'] ?? '') as String,
+    title: (json['title'] ?? '') as String,
+    locationId: (json['location_id'] ?? '') as String,
+    quantityChange: (json['quantity_change'] ?? json['quantity'] as num?)?.toInt() ?? 0,
+    reason: (json['reason'] ?? '') as String,
+    movedAt: DateTime.tryParse((json['moved_at'] ?? json['created_at'] ?? '') as String) ?? DateTime.now(),
+    movedByName: (json['moved_by_name'] ?? json['user_name'] ?? 'System') as String,
+    notes: json['notes'] as String?,
+  );
+}
+
+// ─── In-App Notification ──────────────────────────────────────────────────────
+
+class AppNotification {
+  const AppNotification({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.message,
+    required this.isRead,
+    required this.createdAt,
+    this.payload,
+    this.readAt,
+  });
+
+  final String id;
+  final String type;
+  final String title;
+  final String message;
+  final bool isRead;
+  final DateTime createdAt;
+  final Map<String, dynamic>? payload;
+  final DateTime? readAt;
+
+  factory AppNotification.fromJson(Map<String, dynamic> json) => AppNotification(
+    id: json['id'] as String,
+    type: (json['type'] ?? '') as String,
+    title: (json['title'] ?? '') as String,
+    message: (json['message'] ?? '') as String,
+    isRead: (json['is_read'] as bool?) ?? false,
+    createdAt: DateTime.tryParse((json['created_at'] ?? '') as String) ?? DateTime.now(),
+    payload: json['payload'] != null
+        ? Map<String, dynamic>.from(json['payload'] as Map)
+        : null,
+    readAt: json['read_at'] != null
+        ? DateTime.tryParse(json['read_at'] as String)
+        : null,
+  );
+
+  AppNotification copyWith({bool? isRead, DateTime? readAt}) => AppNotification(
+    id: id,
+    type: type,
+    title: title,
+    message: message,
+    isRead: isRead ?? this.isRead,
+    createdAt: createdAt,
+    payload: payload,
+    readAt: readAt ?? this.readAt,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 class StaffRecordsBundle {
   const StaffRecordsBundle({
     required this.attendance,
@@ -942,26 +1376,14 @@ class StaffRecordsBundle {
   factory StaffRecordsBundle.fromJson(Map<String, dynamic> json) {
     return StaffRecordsBundle(
       attendance: (json['attendance'] as List<dynamic>? ?? const <dynamic>[])
-          .map(
-            (e) =>
-                AttendanceRecord.fromJson(Map<String, dynamic>.from(e as Map)),
-          )
+          .map((e) => AttendanceRecord.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList(),
-      salaryPayouts:
-          (json['salary_payouts'] as List<dynamic>? ?? const <dynamic>[])
-              .map(
-                (e) => SalaryPayoutRecord.fromJson(
-                  Map<String, dynamic>.from(e as Map),
-                ),
-              )
-              .toList(),
-      leaveRecords:
-          (json['leave_records'] as List<dynamic>? ?? const <dynamic>[])
-              .map(
-                (e) =>
-                    LeaveRecord.fromJson(Map<String, dynamic>.from(e as Map)),
-              )
-              .toList(),
+      salaryPayouts: (json['salary_payouts'] as List<dynamic>? ?? const <dynamic>[])
+          .map((e) => SalaryPayoutRecord.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+      leaveRecords: (json['leave_records'] as List<dynamic>? ?? const <dynamic>[])
+          .map((e) => LeaveRecord.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
     );
   }
 }

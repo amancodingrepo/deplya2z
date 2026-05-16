@@ -1,17 +1,14 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../core/app_theme.dart';
 import '../core/models.dart';
 import '../state/providers.dart';
-import 'widgets/inventory_filter_bar.dart';
-import 'widgets/inventory_catalog_tools.dart';
 import 'widgets/glass_card.dart';
-import 'widgets/gradient_button.dart';
 import 'widgets/metric_card.dart';
-import 'widgets/order_journey_strip.dart';
+import 'widgets/notification_bell.dart';
 import 'widgets/product_image.dart';
 import 'widgets/status_badge.dart';
 
@@ -30,23 +27,33 @@ class _WarehouseScreenState extends ConsumerState<WarehouseScreen> {
     final state = ref.watch(appControllerProvider);
     final controller = ref.read(appControllerProvider.notifier);
 
+    // Show snackbar messages
+    ref.listen(appControllerProvider, (prev, next) {
+      if (next.message != null && next.message != prev?.message) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(next.message!),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        controller.clearMessage();
+      }
+    });
+
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(gradient: AppTheme.backgroundGradient),
-        child: SafeArea(
-          child: IndexedStack(
-            index: _navIndex,
-            children: [
-              _DashboardTab(state: state, controller: controller),
-              _OrdersTab(state: state, controller: controller),
-              _InventoryTab(
-                state: state,
-                controller: controller,
-                onViewAll: () => context.go('/inventory'),
-              ),
-              _SettingsTab(controller: controller, state: state),
-            ],
-          ),
+      backgroundColor: AppTheme.s50,
+      body: SafeArea(
+        child: IndexedStack(
+          index: _navIndex,
+          children: [
+            _DashboardTab(state: state, controller: controller),
+            _OrdersTab(state: state, controller: controller),
+            _InventoryTab(state: state, controller: controller),
+            _BulkOrdersTab(state: state, controller: controller),
+            _StaffTab(state: state, controller: controller),
+          ],
         ),
       ),
       bottomNavigationBar: _buildBottomNav(),
@@ -56,14 +63,26 @@ class _WarehouseScreenState extends ConsumerState<WarehouseScreen> {
   Widget _buildBottomNav() {
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.bgCard,
-        border: Border(
-          top: BorderSide(color: AppTheme.surfaceLight.withValues(alpha: 0.3)),
-        ),
+        color: AppTheme.white,
+        border: Border(top: BorderSide(color: AppTheme.s200)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
       ),
       child: BottomNavigationBar(
         currentIndex: _navIndex,
         onTap: (i) => setState(() => _navIndex = i),
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        selectedItemColor: AppTheme.primary,
+        unselectedItemColor: AppTheme.s500,
+        selectedFontSize: 11,
+        unselectedFontSize: 11,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_rounded),
@@ -78,8 +97,12 @@ class _WarehouseScreenState extends ConsumerState<WarehouseScreen> {
             label: 'Inventory',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings_rounded),
-            label: 'Settings',
+            icon: Icon(Icons.business_center_rounded),
+            label: 'Bulk',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.group_rounded),
+            label: 'Staff',
           ),
         ],
       ),
@@ -87,77 +110,39 @@ class _WarehouseScreenState extends ConsumerState<WarehouseScreen> {
   }
 }
 
-String _orderSummary(StoreOrder order) {
-  if (order.items.isEmpty) {
-    return 'No items';
-  }
-  final first = order.items.first;
-  if (order.items.length == 1) {
-    return '${first.title} • Qty ${first.quantity}';
-  }
-  return '${first.title} • Qty ${first.quantity} + ${order.items.length - 1} more';
-}
-
-SliverToBoxAdapter _sectionHeader(String title, IconData icon) {
-  return SliverToBoxAdapter(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-      child: Row(
-        children: [
-          Icon(icon, color: AppTheme.primary, size: 18),
-          const SizedBox(width: 8),
-          Text(
-            title,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Dashboard Tab
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class _DashboardTab extends StatelessWidget {
   const _DashboardTab({required this.state, required this.controller});
-
   final dynamic state;
   final dynamic controller;
 
   @override
   Widget build(BuildContext context) {
-    final orders = (state.orders as List<StoreOrder>);
-    final inventory = (state.inventory as List<InventoryItem>);
-    final pending = orders
-        .where(
-          (o) =>
-              o.status == OrderStatus.draft ||
-              o.status == OrderStatus.confirmed ||
-              o.status == OrderStatus.pendingWarehouseApproval,
-        )
-        .toList(growable: false);
-    final packed = orders
-        .where(
-          (o) =>
-              o.status == OrderStatus.warehouseApproved ||
-              o.status == OrderStatus.packed,
-        )
-        .toList(growable: false);
-    final lowStock = inventory
+    final orders = state.orders as List<StoreOrder>;
+    final awaitingApproval =
+        orders.where((o) => o.status == OrderStatus.draft).toList();
+    final toPack =
+        orders.where((o) => o.status == OrderStatus.confirmed).toList();
+    final packed =
+        orders.where((o) => o.status == OrderStatus.packed).toList();
+    final lowStock = (state.inventory as List<InventoryItem>)
         .where((i) => i.isLowStock)
-        .toList(growable: false);
+        .toList();
+    final session = state.session as UserSession?;
 
     return RefreshIndicator(
-      onRefresh: () => controller.refreshForCurrentRole(),
+      onRefresh: () => controller.refreshData(),
       color: AppTheme.primary,
-      backgroundColor: AppTheme.bgCard,
       child: CustomScrollView(
         slivers: [
+          // â”€â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+            child: Container(
+              color: AppTheme.white,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
               child: Row(
                 children: [
                   Expanded(
@@ -165,131 +150,197 @@ class _DashboardTab extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Welcome back 👋',
+                          'Welcome back ðŸ‘‹',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
-                          'Warehouse Hub',
+                          session?.name ?? 'Warehouse Hub',
                           style: Theme.of(context).textTheme.headlineMedium,
                         ),
                       ],
                     ),
                   ),
+                  if ((state.syncQueue as List).isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppTheme.amber.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.sync_rounded,
+                            color: AppTheme.amber,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${(state.syncQueue as List).length}',
+                            style: const TextStyle(
+                              color: AppTheme.amber,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const NotificationBell(),
+                  const SizedBox(width: 4),
                   IconButton(
-                    onPressed: () => controller.refreshForCurrentRole(),
+                    onPressed: () => controller.refreshData(),
                     icon: const Icon(Icons.refresh_rounded),
                     style: IconButton.styleFrom(
-                      backgroundColor: AppTheme.bgCard,
+                      backgroundColor: AppTheme.bgCardLight,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: () =>
+                        _showLogoutDialog(context, controller),
+                    icon: const Icon(Icons.logout_rounded),
+                    style: IconButton.styleFrom(
+                      backgroundColor: AppTheme.bgCardLight,
                     ),
                   ),
                 ],
               ),
             ),
           ),
+
+          // â”€â”€â”€ Metric Cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
               child: Row(
                 children: [
                   MetricCard(
-                    icon: Icons.pending_actions_rounded,
-                    label: 'Pending',
-                    value: pending.length,
-                    color: AppTheme.info,
+                    icon: Icons.hourglass_top_rounded,
+                    label: 'For Approval',
+                    value: awaitingApproval.length,
+                    color: AppTheme.primary,
                   ),
                   const SizedBox(width: 10),
                   MetricCard(
-                    icon: Icons.inventory_2_rounded,
-                    label: 'Packed',
-                    value: packed.length,
-                    color: AppTheme.warning,
+                    icon: Icons.inventory_rounded,
+                    label: 'To Pack',
+                    value: toPack.length,
+                    color: AppTheme.amber,
                   ),
                   const SizedBox(width: 10),
                   MetricCard(
                     icon: Icons.warning_amber_rounded,
                     label: 'Low Stock',
                     value: lowStock.length,
-                    color: AppTheme.error,
+                    color: AppTheme.red,
                   ),
                 ],
               ),
             ),
           ),
-          if (pending.isNotEmpty) ...[
-            _sectionHeader('Pending Orders', Icons.access_time_rounded),
+
+          // â”€â”€â”€ Awaiting Approval â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          if (awaitingApproval.isNotEmpty) ...[
+            _sectionHeader(
+              context,
+              'Awaiting Approval',
+              Icons.hourglass_top_rounded,
+              AppTheme.primary,
+            ),
             SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final order = pending[index];
+              delegate: SliverChildBuilderDelegate((ctx, i) {
+                final order = awaitingApproval[i];
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: _OrderCard(
+                  child: _ApprovalOrderCard(
                     order: order,
-                    actionLabel: 'Accept',
-                    actionIcon: Icons.verified_rounded,
-                    secondaryActionLabel: 'Deny',
-                    secondaryActionIcon: Icons.cancel_outlined,
-                    onAction: () => _showConfirmDialog(
-                      context,
-                      'Accept Order?',
-                      _orderSummary(order),
-                      () => controller.transitionOrder(
-                        order,
-                        OrderStatus.warehouseApproved,
-                      ),
+                    onApprove: () => controller.transitionOrder(
+                      order,
+                      OrderStatus.confirmed,
                     ),
-                    onSecondaryAction: () => _showConfirmDialog(
-                      context,
-                      'Reject Order?',
-                      'This order will be sent back to the store.',
-                      () => controller.transitionOrder(
-                        order,
-                        OrderStatus.warehouseRejected,
-                      ),
-                    ),
-                    onTap: () => _showOrderDetails(context, controller, order),
+                    onReject: (reason) =>
+                        controller.rejectOrder(order, reason),
                   ),
                 );
-              }, childCount: pending.length),
+              }, childCount: awaitingApproval.length),
             ),
           ],
-          if (packed.isNotEmpty) ...[
-            _sectionHeader('Dispatch Queue', Icons.local_shipping_rounded),
+
+          // â”€â”€â”€ To Pack â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          if (toPack.isNotEmpty) ...[
+            _sectionHeader(
+              context,
+              'Ready to Pack',
+              Icons.inventory_2_rounded,
+              AppTheme.amber,
+            ),
             SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final order = packed[index];
-                final isPacked = order.status == OrderStatus.packed;
+              delegate: SliverChildBuilderDelegate((ctx, i) {
+                final order = toPack[i];
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: _OrderCard(
+                  child: _ActionOrderCard(
                     order: order,
-                    actionLabel: isPacked ? 'Dispatch' : 'Pack',
-                    actionIcon: isPacked
-                        ? Icons.send_rounded
-                        : Icons.inventory_2_rounded,
-                    actionGradient: isPacked ? AppTheme.accentGradient : null,
-                    onAction: () => _showConfirmDialog(
-                      context,
-                      isPacked ? 'Mark as Dispatched?' : 'Mark as Packed?',
-                      isPacked
-                          ? 'Ship ${order.orderId} to the store.'
-                          : 'Pack ${order.orderId} for dispatch.',
-                      () => controller.transitionOrder(
-                        order,
-                        isPacked ? OrderStatus.dispatched : OrderStatus.packed,
-                      ),
+                    actionLabel: 'Mark Packed',
+                    actionIcon: Icons.check_circle_outline_rounded,
+                    actionColor: AppTheme.amber,
+                    onAction: () => controller.transitionOrder(
+                      order,
+                      OrderStatus.packed,
                     ),
-                    onTap: () => _showOrderDetails(context, controller, order),
+                  ),
+                );
+              }, childCount: toPack.length),
+            ),
+          ],
+
+          // â”€â”€â”€ Dispatch Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          if (packed.isNotEmpty) ...[
+            _sectionHeader(
+              context,
+              'Dispatch Queue',
+              Icons.local_shipping_rounded,
+              AppTheme.green,
+            ),
+            SliverList(
+              delegate: SliverChildBuilderDelegate((ctx, i) {
+                final order = packed[i];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _ActionOrderCard(
+                    order: order,
+                    actionLabel: 'Dispatch',
+                    actionIcon: Icons.send_rounded,
+                    actionColor: AppTheme.green,
+                    onAction: () => _showDispatchDialog(
+                      context,
+                      order,
+                      controller,
+                    ),
                   ),
                 );
               }, childCount: packed.length),
             ),
           ],
+
+          // â”€â”€â”€ Low Stock Alerts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           if (lowStock.isNotEmpty) ...[
-            _sectionHeader('Low Stock Alerts', Icons.warning_rounded),
+            _sectionHeader(
+              context,
+              'Low Stock Alerts',
+              Icons.warning_rounded,
+              AppTheme.red,
+            ),
             SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final item = lowStock[index];
+              delegate: SliverChildBuilderDelegate((ctx, i) {
+                final item = lowStock[i];
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: GlassCard(
@@ -298,7 +349,7 @@ class _DashboardTab extends StatelessWidget {
                         ProductImage(
                           imageUrl: item.imageUrl,
                           localPath: item.localImagePath,
-                          size: 48,
+                          size: 44,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -308,16 +359,15 @@ class _DashboardTab extends StatelessWidget {
                               Text(
                                 item.title,
                                 style: const TextStyle(
-                                  color: AppTheme.textPrimary,
+                                  color: AppTheme.s900,
                                   fontWeight: FontWeight.w600,
                                   fontSize: 14,
                                 ),
                               ),
-                              const SizedBox(height: 2),
                               Text(
-                                '${item.sku} • ${item.brand}',
+                                item.sku,
                                 style: const TextStyle(
-                                  color: AppTheme.textMuted,
+                                  color: AppTheme.s500,
                                   fontSize: 12,
                                 ),
                               ),
@@ -330,13 +380,13 @@ class _DashboardTab extends StatelessWidget {
                             vertical: 5,
                           ),
                           decoration: BoxDecoration(
-                            color: AppTheme.error.withValues(alpha: 0.12),
+                            color: AppTheme.red.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
                             '${item.availableStock} left',
                             style: const TextStyle(
-                              color: AppTheme.error,
+                              color: AppTheme.red,
                               fontWeight: FontWeight.w600,
                               fontSize: 12,
                             ),
@@ -349,184 +399,617 @@ class _DashboardTab extends StatelessWidget {
               }, childCount: lowStock.length),
             ),
           ],
-          if (orders.isNotEmpty) ...[
-            _sectionHeader('Recent Orders', Icons.history_rounded),
-            SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final order = orders[index];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: GlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    order.orderId,
-                                    style: const TextStyle(
-                                      color: AppTheme.textPrimary,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _orderSummary(order),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: AppTheme.textSecondary,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            StatusBadge(status: order.status, compact: true),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        OrderJourneyStrip(status: order.status, compact: true),
-                      ],
-                    ),
-                  ),
-                );
-              }, childCount: orders.length.clamp(0, 5)),
+
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+        ],
+      ),
+    );
+  }
+
+  static SliverToBoxAdapter _sectionHeader(
+    BuildContext context,
+    String title,
+    IconData icon,
+    Color color,
+  ) {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: const TextStyle(
+                color: AppTheme.s900,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+        ),
+      ),
+    );
+  }
+
+  static void _showDispatchDialog(
+    BuildContext context,
+    StoreOrder order,
+    dynamic controller,
+  ) {
+    final notesCtrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        ),
+        title: const Text('Dispatch Order'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              order.orderId,
+              style: const TextStyle(
+                color: AppTheme.s500,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: notesCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Dispatch notes (optional)',
+                hintText: 'e.g. Driver name, vehicle number...',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              controller.dispatchOrderWithNotes(
+                order,
+                notes: notesCtrl.text.trim().isEmpty
+                    ? null
+                    : notesCtrl.text.trim(),
+              );
+            },
+            icon: const Icon(Icons.send_rounded, size: 16),
+            label: const Text('Dispatch'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static void _showLogoutDialog(
+    BuildContext context,
+    dynamic controller,
+  ) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sign Out?'),
+        content: const Text('You will be signed out of the app.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.red,
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              controller.logout();
+            },
+            child: const Text('Sign Out'),
+          ),
         ],
       ),
     );
   }
 }
 
-class _OrderCard extends StatelessWidget {
-  const _OrderCard({
-    required this.order,
-    required this.actionLabel,
-    required this.actionIcon,
-    required this.onAction,
-    this.secondaryActionLabel,
-    this.secondaryActionIcon,
-    this.onSecondaryAction,
-    this.onTap,
-    this.actionGradient,
-  });
+// â”€â”€ Approval order card (draft â†’ approve / reject) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+class _ApprovalOrderCard extends StatelessWidget {
+  const _ApprovalOrderCard({
+    required this.order,
+    required this.onApprove,
+    required this.onReject,
+  });
   final StoreOrder order;
-  final String actionLabel;
-  final IconData actionIcon;
-  final VoidCallback onAction;
-  final String? secondaryActionLabel;
-  final IconData? secondaryActionIcon;
-  final VoidCallback? onSecondaryAction;
-  final VoidCallback? onTap;
-  final Gradient? actionGradient;
+  final VoidCallback onApprove;
+  final void Function(String reason) onReject;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-        onTap: onTap,
-        child: GlassCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          order.orderId,
-                          style: const TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${order.storeName} → ${order.warehouseName}',
-                          style: const TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 11,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _orderSummary(order),
-                          style: const TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Updated ${DateFormat('MMM dd, h:mm a').format(order.updatedAt)}',
-                          style: const TextStyle(
-                            color: AppTheme.textMuted,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  StatusBadge(status: order.status, compact: true),
-                ],
-              ),
-              const SizedBox(height: 10),
-              OrderJourneyStrip(status: order.status, compact: true),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  if (secondaryActionLabel != null && onSecondaryAction != null)
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: onSecondaryAction,
-                        icon: Icon(secondaryActionIcon ?? Icons.close),
-                        label: Text(secondaryActionLabel!),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      order.orderId,
+                      style: const TextStyle(
+                        color: AppTheme.s900,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
                       ),
                     ),
-                  if (secondaryActionLabel != null && onSecondaryAction != null)
-                    const SizedBox(width: 10),
-                  Expanded(
-                    child: GradientButton(
-                      label: actionLabel,
-                      icon: actionIcon,
-                      compact: true,
-                      gradient: actionGradient,
-                      onPressed: onAction,
+                    const SizedBox(height: 2),
+                    Text(
+                      order.items.map((i) => '${i.title} Ã—${i.quantity}').join(', '),
+                      style: const TextStyle(
+                        color: AppTheme.s500,
+                        fontSize: 12,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    Text(
+                      DateFormat('MMM dd, h:mm a').format(order.createdAt),
+                      style: const TextStyle(color: AppTheme.s500, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              StatusBadge(status: order.status, compact: true),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _showRejectDialog(context),
+                icon: const Icon(Icons.close_rounded, size: 14),
+                label: const Text('Reject'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.red,
+                  side: const BorderSide(color: AppTheme.red),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
                   ),
-                ],
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: const TextStyle(fontSize: 12),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: onApprove,
+                icon: const Icon(Icons.check_rounded, size: 14),
+                label: const Text('Approve'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: const TextStyle(fontSize: 12),
+                ),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  void _showRejectDialog(BuildContext context) {
+    final reasonCtrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         ),
+        title: const Text('Reject Order'),
+        content: TextField(
+          controller: reasonCtrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Reason for rejection',
+            hintText: 'e.g. Insufficient stock, incorrect items...',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.red),
+            onPressed: () {
+              if (reasonCtrl.text.trim().isEmpty) return;
+              Navigator.pop(ctx);
+              onReject(reasonCtrl.text.trim());
+            },
+            child: const Text('Reject'),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _InventoryTab extends StatefulWidget {
-  const _InventoryTab({
-    required this.state,
-    required this.onViewAll,
-    required this.controller,
-  });
+// â”€â”€ Action order card (pack / dispatch) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+class _ActionOrderCard extends StatelessWidget {
+  const _ActionOrderCard({
+    required this.order,
+    required this.actionLabel,
+    required this.actionIcon,
+    required this.actionColor,
+    required this.onAction,
+  });
+  final StoreOrder order;
+  final String actionLabel;
+  final IconData actionIcon;
+  final Color actionColor;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  order.orderId,
+                  style: const TextStyle(
+                    color: AppTheme.s900,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  order.items.map((i) => '${i.title} Ã—${i.quantity}').join(', '),
+                  style: const TextStyle(color: AppTheme.s500, fontSize: 12),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  DateFormat('MMM dd, h:mm a').format(order.updatedAt),
+                  style: const TextStyle(color: AppTheme.s500, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: onAction,
+            icon: Icon(actionIcon, size: 14),
+            label: Text(actionLabel),
+            style: FilledButton.styleFrom(
+              backgroundColor: actionColor,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Orders Tab â€” sub-tabs: Pending Approval | To Pack | Dispatched | All
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+class _OrdersTab extends StatefulWidget {
+  const _OrdersTab({required this.state, required this.controller});
   final dynamic state;
-  final VoidCallback onViewAll;
+  final dynamic controller;
+
+  @override
+  State<_OrdersTab> createState() => _OrdersTabState();
+}
+
+class _OrdersTabState extends State<_OrdersTab>
+    with SingleTickerProviderStateMixin {
+  late TabController _tab;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 4, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final all = widget.state.orders as List<StoreOrder>;
+    final approval = all.where((o) => o.status == OrderStatus.draft).toList();
+    final toPack = all.where((o) => o.status == OrderStatus.confirmed).toList();
+    final dispatched = all
+        .where((o) =>
+            o.status == OrderStatus.dispatched ||
+            o.status == OrderStatus.storeReceived ||
+            o.status == OrderStatus.completed)
+        .toList();
+
+    return Column(
+      children: [
+        Container(
+          color: AppTheme.white,
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Orders',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 12),
+              TabBar(
+                controller: _tab,
+                tabs: [
+                  Tab(text: 'Approval (${approval.length})'),
+                  Tab(text: 'To Pack (${toPack.length})'),
+                  Tab(text: 'Dispatched'),
+                  const Tab(text: 'All'),
+                ],
+                labelColor: AppTheme.primary,
+                unselectedLabelColor: AppTheme.s500,
+                indicatorColor: AppTheme.primary,
+                labelStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tab,
+            children: [
+              // Awaiting Approval
+              _buildOrderList(
+                approval,
+                empty: 'No orders awaiting approval',
+                cardBuilder: (order) => _ApprovalOrderCard(
+                  order: order,
+                  onApprove: () => widget.controller.transitionOrder(
+                    order,
+                    OrderStatus.confirmed,
+                  ),
+                  onReject: (reason) =>
+                      widget.controller.rejectOrder(order, reason),
+                ),
+              ),
+              // To Pack
+              _buildOrderList(
+                toPack,
+                empty: 'No orders to pack',
+                cardBuilder: (order) => _ActionOrderCard(
+                  order: order,
+                  actionLabel: 'Mark Packed',
+                  actionIcon: Icons.check_circle_outline_rounded,
+                  actionColor: AppTheme.amber,
+                  onAction: () => widget.controller.transitionOrder(
+                    order,
+                    OrderStatus.packed,
+                  ),
+                ),
+              ),
+              // Dispatched
+              _buildOrderList(
+                dispatched,
+                empty: 'No dispatched orders',
+                cardBuilder: (order) => _OrderListCard(order: order),
+              ),
+              // All
+              _buildOrderList(
+                all,
+                empty: 'No orders yet',
+                cardBuilder: (order) => _OrderListCard(
+                  order: order,
+                  showDispatch: order.status == OrderStatus.packed,
+                  onDispatch: order.status == OrderStatus.packed
+                      ? () => _showDispatchDialog(context, order, widget.controller)
+                      : null,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOrderList(
+    List<StoreOrder> orders, {
+    required String empty,
+    required Widget Function(StoreOrder) cardBuilder,
+  }) {
+    if (orders.isEmpty) {
+      return Center(
+        child: Text(
+          empty,
+          style: const TextStyle(color: AppTheme.s500),
+        ),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(20),
+      itemCount: orders.length,
+      itemBuilder: (_, i) => cardBuilder(orders[i]),
+    );
+  }
+
+  void _showDispatchDialog(
+    BuildContext context,
+    StoreOrder order,
+    dynamic controller,
+  ) {
+    final notesCtrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        ),
+        title: const Text('Dispatch Order'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(order.orderId,
+                style: const TextStyle(color: AppTheme.s500, fontSize: 13)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: notesCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Dispatch notes (optional)',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              controller.dispatchOrderWithNotes(
+                order,
+                notes: notesCtrl.text.trim().isEmpty
+                    ? null
+                    : notesCtrl.text.trim(),
+              );
+            },
+            icon: const Icon(Icons.send_rounded, size: 14),
+            label: const Text('Dispatch'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderListCard extends StatelessWidget {
+  const _OrderListCard({
+    required this.order,
+    this.showDispatch = false,
+    this.onDispatch,
+  });
+  final StoreOrder order;
+  final bool showDispatch;
+  final VoidCallback? onDispatch;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  order.orderId,
+                  style: const TextStyle(
+                    color: AppTheme.s900,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  order.items.map((i) => '${i.title} Ã—${i.quantity}').join(', '),
+                  style: const TextStyle(color: AppTheme.s500, fontSize: 12),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  DateFormat('MMM dd, yyyy â€¢ h:mm a').format(order.createdAt),
+                  style: const TextStyle(color: AppTheme.s500, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              StatusBadge(status: order.status, compact: true),
+              if (showDispatch && onDispatch != null) ...[
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: onDispatch,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.green.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'Dispatch',
+                      style: TextStyle(
+                        color: AppTheme.green,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Inventory Tab
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+class _InventoryTab extends StatefulWidget {
+  const _InventoryTab({required this.state, required this.controller});
+  final dynamic state;
   final dynamic controller;
 
   @override
@@ -535,39 +1018,24 @@ class _InventoryTab extends StatefulWidget {
 
 class _InventoryTabState extends State<_InventoryTab> {
   String _search = '';
-  String _selectedCategory = '';
-  String _selectedDevice = '';
-  String _selectedBrand = '';
-  String _selectedModel = '';
-  String _selectedColor = '';
-  InventoryStockFilter _stockFilter = InventoryStockFilter.all;
-  InventorySortOption _sortOption = InventorySortOption.relevance;
+  final _picker = ImagePicker();
 
   @override
   Widget build(BuildContext context) {
-    final source = widget.state.inventory as List<InventoryItem>;
-    final inventory = filterInventoryItems(
-      source,
-      search: _search,
-      category: _selectedCategory,
-      device: _selectedDevice,
-      brand: _selectedBrand,
-      model: _selectedModel,
-      color: _selectedColor,
-      stockFilter: _stockFilter,
-      sort: _sortOption,
-    );
-    final catalog = widget.state.inventoryCatalog as InventoryCatalog;
-    final categoryOptions = catalog.categories;
-    final deviceOptions = catalog.devices;
-    final brandOptions = inventoryFilterValues(source, (item) => item.brand);
-    final modelOptions = catalog.models;
-    final colorOptions = catalog.colors;
+    final inventory = (widget.state.inventory as List<InventoryItem>)
+        .where(
+          (i) =>
+              _search.isEmpty ||
+              i.title.toLowerCase().contains(_search.toLowerCase()) ||
+              i.sku.toLowerCase().contains(_search.toLowerCase()) ||
+              i.brand.toLowerCase().contains(_search.toLowerCase()),
+        )
+        .toList();
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
+        Container(
+          color: AppTheme.white,
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
           child: Row(
             children: [
@@ -578,96 +1046,181 @@ class _InventoryTabState extends State<_InventoryTab> {
                 ),
               ),
               OutlinedButton.icon(
-                onPressed: () => showInventoryCatalogManager(
-                  context: context,
-                  catalog: widget.state.inventoryCatalog as InventoryCatalog,
-                  onAdd: widget.controller.addInventoryCatalogValue,
+                onPressed: () => _showTransferDialog(context),
+                icon: const Icon(Icons.swap_horiz_rounded, size: 16),
+                label: const Text('Transfer'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  textStyle: const TextStyle(fontSize: 12),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                icon: const Icon(Icons.library_add_rounded),
-                label: const Text('Catalog'),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: _showCreateDialog,
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Add Item'),
+                icon: const Icon(Icons.add_rounded, size: 16),
+                label: const Text('Add'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  textStyle: const TextStyle(fontSize: 12),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
             ],
           ),
         ),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: InventoryFilterBar(
-            searchValue: _search,
-            onSearchChanged: (value) => setState(() => _search = value),
-            categoryValue: _selectedCategory,
-            onCategoryChanged: (value) =>
-                setState(() => _selectedCategory = value),
-            categoryOptions: categoryOptions,
-            deviceValue: _selectedDevice,
-            onDeviceChanged: (value) => setState(() => _selectedDevice = value),
-            deviceOptions: deviceOptions,
-            brandValue: _selectedBrand,
-            onBrandChanged: (value) => setState(() => _selectedBrand = value),
-            brandOptions: brandOptions,
-            modelValue: _selectedModel,
-            onModelChanged: (value) => setState(() => _selectedModel = value),
-            modelOptions: modelOptions,
-            colorValue: _selectedColor,
-            onColorChanged: (value) => setState(() => _selectedColor = value),
-            colorOptions: colorOptions,
-            stockFilter: _stockFilter,
-            onStockFilterChanged: (value) =>
-                setState(() => _stockFilter = value),
-            sortOption: _sortOption,
-            onSortChanged: (value) => setState(() => _sortOption = value),
-            onManageCatalog: () => showInventoryCatalogManager(
-              context: context,
-              catalog: widget.state.inventoryCatalog as InventoryCatalog,
-              onAdd: widget.controller.addInventoryCatalogValue,
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+          child: TextField(
+            onChanged: (v) => setState(() => _search = v),
+            decoration: const InputDecoration(
+              hintText: 'Search products...',
+              prefixIcon: Icon(Icons.search_rounded),
+              isDense: true,
             ),
           ),
         ),
-        const SizedBox(height: 12),
         Expanded(
           child: inventory.isEmpty
               ? const Center(
                   child: Text(
                     'No products found',
-                    style: TextStyle(color: AppTheme.textMuted),
+                    style: TextStyle(color: AppTheme.s500),
                   ),
                 )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth;
-                    final crossAxisCount = width > 980
-                        ? 4
-                        : width > 720
-                        ? 3
-                        : width > 480
-                        ? 2
-                        : 1;
-
-                    return GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: crossAxisCount,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        childAspectRatio: 0.92,
-                      ),
-                      itemCount: inventory.length,
-                      itemBuilder: (context, index) {
-                        final item = inventory[index];
-                        return _WarehouseInventoryCard(
-                          item: item,
-                          onEdit: () => _showUpdateDialog(item),
-                          onDelete: () => widget.controller.deleteInventoryItem(
-                            productRef: item.productId,
-                            locationId: item.locationId,
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: inventory.length,
+                  itemBuilder: (_, i) {
+                    final item = inventory[i];
+                    return GlassCard(
+                      child: Row(
+                        children: [
+                          ProductImage(
+                            imageUrl: item.imageUrl,
+                            localPath: item.localImagePath,
+                            size: 52,
                           ),
-                        );
-                      },
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.title,
+                                  style: const TextStyle(
+                                    color: AppTheme.s900,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Text(
+                                  '${item.sku} â€¢ ${item.brand}',
+                                  style: const TextStyle(
+                                    color: AppTheme.s500,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                if (item.model.isNotEmpty || item.color.isNotEmpty)
+                                  Text(
+                                    '${item.model} ${item.color}'.trim(),
+                                    style: const TextStyle(
+                                      color: AppTheme.s500,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                '${item.availableStock}',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: item.isLowStock
+                                      ? AppTheme.red
+                                      : AppTheme.green,
+                                ),
+                              ),
+                              Text(
+                                'avail',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: item.isLowStock
+                                      ? AppTheme.red.withValues(alpha: 0.7)
+                                      : AppTheme.s500,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Res ${item.reservedStock}/${item.totalStock}',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: AppTheme.s500,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.tune_rounded,
+                                      size: 16,
+                                      color: AppTheme.amber,
+                                    ),
+                                    tooltip: 'Adjust Stock',
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () =>
+                                        _showAdjustDialog(context, item),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.edit_rounded,
+                                      size: 16,
+                                      color: AppTheme.primary,
+                                    ),
+                                    tooltip: 'Edit',
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () =>
+                                        _showUpdateDialog(context, item),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 16,
+                                      color: AppTheme.red,
+                                    ),
+                                    tooltip: 'Delete',
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () =>
+                                        widget.controller.deleteInventoryItem(
+                                          productRef: item.productId,
+                                          locationId: item.locationId,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     );
                   },
                 ),
@@ -676,465 +1229,527 @@ class _InventoryTabState extends State<_InventoryTab> {
     );
   }
 
-  Future<void> _showCreateDialog() async {
-    await showInventoryEditorDialog(
+  void _showAdjustDialog(BuildContext context, InventoryItem item) {
+    final qtyCtrl =
+        TextEditingController(text: item.availableStock.toString());
+    String selectedReason = 'Recount';
+    final notesCtrl = TextEditingController();
+    const reasons = [
+      'Recount',
+      'Damaged',
+      'Received stock',
+      'Returned stock',
+      'Other',
+    ];
+
+    showDialog<void>(
       context: context,
-      title: 'Create Inventory Item',
-      actionLabel: 'Create',
-      catalog: widget.state.inventoryCatalog as InventoryCatalog,
-      onSubmit: (values) => widget.controller.createInventoryItem(
-        sku: values.sku,
-        title: values.title,
-        brand: values.brand,
-        category: values.category.isEmpty ? null : values.category,
-        model: values.model.isEmpty ? null : values.model,
-        color: values.color.isEmpty ? null : values.color,
-        totalStock: values.totalStock,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          backgroundColor: AppTheme.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          ),
+          title: const Text('Adjust Stock'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  style: const TextStyle(
+                    color: AppTheme.s500,
+                    fontSize: 13,
+                  ),
+                ),
+                Text(
+                  'Current: ${item.availableStock} available',
+                  style: const TextStyle(color: AppTheme.s500, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qtyCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'New quantity (available)',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedReason,
+                  decoration: const InputDecoration(labelText: 'Reason'),
+                  items: reasons
+                      .map(
+                        (r) => DropdownMenuItem(value: r, child: Text(r)),
+                      )
+                      .toList(),
+                  onChanged: (v) =>
+                      setDlg(() => selectedReason = v ?? selectedReason),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (optional)',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final qty = int.tryParse(qtyCtrl.text.trim());
+                if (qty == null) return;
+                Navigator.pop(ctx);
+                widget.controller.adjustStock(
+                  productRef: item.productId,
+                  newQuantity: qty,
+                  reason: selectedReason,
+                  locationId: item.locationId,
+                  notes: notesCtrl.text.trim().isEmpty
+                      ? null
+                      : notesCtrl.text.trim(),
+                );
+              },
+              child: const Text('Apply'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _showUpdateDialog(InventoryItem item) async {
-    await showInventoryEditorDialog(
+  void _showTransferDialog(BuildContext context) {
+    final locations = widget.state.locations as List<AppLocation>;
+    final inventory = widget.state.inventory as List<InventoryItem>;
+    if (inventory.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No inventory to transfer')),
+      );
+      return;
+    }
+
+    String? fromLocationId =
+        locations.isNotEmpty ? locations.first.id : null;
+    String? toLocationId;
+    String? productId = inventory.isNotEmpty ? inventory.first.productId : null;
+    final qtyCtrl = TextEditingController(text: '1');
+    final noteCtrl = TextEditingController();
+
+    showDialog<void>(
       context: context,
-      title: 'Update Inventory Item',
-      actionLabel: 'Save',
-      catalog: widget.state.inventoryCatalog as InventoryCatalog,
-      initialValues: InventoryEditorValues(
-        sku: item.sku,
-        title: item.title,
-        brand: item.brand,
-        category: item.category,
-        model: item.model,
-        color: item.color,
-        totalStock: item.totalStock,
-        locationId: item.locationId,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          backgroundColor: AppTheme.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          ),
+          title: const Text('Transfer Stock'),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 320,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: fromLocationId,
+                    decoration: const InputDecoration(labelText: 'From Location'),
+                    items: locations
+                        .map(
+                          (l) => DropdownMenuItem(
+                            value: l.id,
+                            child: Text(l.name),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) => setDlg(() => fromLocationId = v),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: toLocationId,
+                    decoration: const InputDecoration(labelText: 'To Location'),
+                    items: locations
+                        .where((l) => l.id != fromLocationId)
+                        .map(
+                          (l) => DropdownMenuItem(
+                            value: l.id,
+                            child: Text(l.name),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) => setDlg(() => toLocationId = v),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: productId,
+                    decoration: const InputDecoration(labelText: 'Product'),
+                    items: inventory
+                        .map(
+                          (i) => DropdownMenuItem(
+                            value: i.productId,
+                            child: Text(
+                              '${i.title} (${i.availableStock})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) => setDlg(() => productId = v),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: qtyCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Quantity'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: noteCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Note (optional)',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (fromLocationId == null ||
+                    toLocationId == null ||
+                    productId == null) {
+                  return;
+                }
+                final qty = int.tryParse(qtyCtrl.text.trim()) ?? 0;
+                if (qty <= 0) return;
+                Navigator.pop(ctx);
+                widget.controller.transferStock(
+                  fromLocationId: fromLocationId!,
+                  toLocationId: toLocationId!,
+                  productId: productId!,
+                  quantity: qty,
+                  note: noteCtrl.text.trim().isEmpty
+                      ? null
+                      : noteCtrl.text.trim(),
+                );
+              },
+              child: const Text('Transfer'),
+            ),
+          ],
+        ),
       ),
-      onSubmit: (values) => widget.controller.updateInventoryItem(
-        productRef: item.productId,
-        locationId: item.locationId,
-        title: values.title,
-        brand: values.brand,
-        category: values.category,
-        model: values.model,
-        color: values.color,
-        totalStock: values.totalStock,
+    );
+  }
+
+  Future<void> _showCreateDialog() async {
+    final sku = TextEditingController();
+    final title = TextEditingController();
+    final brand = TextEditingController();
+    final category = TextEditingController();
+    final model = TextEditingController();
+    final color = TextEditingController();
+    final stock = TextEditingController(text: '0');
+    List<int>? imageBytes;
+    String? imageName;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          backgroundColor: AppTheme.white,
+          title: const Text('Create Inventory Item'),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: sku,
+                    decoration: const InputDecoration(labelText: 'SKU *'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: title,
+                    decoration: const InputDecoration(labelText: 'Title *'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: brand,
+                    decoration: const InputDecoration(labelText: 'Brand *'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: category,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: model,
+                    decoration: const InputDecoration(labelText: 'Model'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: color,
+                    decoration: const InputDecoration(labelText: 'Color'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: stock,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Total Stock'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final file = await _picker.pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 80,
+                      );
+                      if (file == null) return;
+                      imageBytes = await file.readAsBytes();
+                      imageName = file.name;
+                      setDlg(() {});
+                    },
+                    icon: const Icon(Icons.image_outlined),
+                    label: Text(imageName ?? 'Upload Image'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (sku.text.trim().isEmpty || title.text.trim().isEmpty) return;
+                await widget.controller.createInventoryItem(
+                  sku: sku.text.trim(),
+                  title: title.text.trim(),
+                  brand: brand.text.trim(),
+                  category:
+                      category.text.trim().isEmpty ? null : category.text.trim(),
+                  model: model.text.trim().isEmpty ? null : model.text.trim(),
+                  color: color.text.trim().isEmpty ? null : color.text.trim(),
+                  totalStock: int.tryParse(stock.text.trim()) ?? 0,
+                  imageBytes: imageBytes,
+                  imageFilename: imageName,
+                );
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showUpdateDialog(BuildContext context, InventoryItem item) async {
+    final title = TextEditingController(text: item.title);
+    final brand = TextEditingController(text: item.brand);
+    final category = TextEditingController(text: item.category);
+    final model = TextEditingController(text: item.model);
+    final color = TextEditingController(text: item.color);
+    final stock = TextEditingController(text: item.totalStock.toString());
+    List<int>? imageBytes;
+    String? imageName;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          backgroundColor: AppTheme.white,
+          title: const Text('Update Inventory Item'),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: title,
+                    decoration: const InputDecoration(labelText: 'Title'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: brand,
+                    decoration: const InputDecoration(labelText: 'Brand'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: category,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: model,
+                    decoration: const InputDecoration(labelText: 'Model'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: color,
+                    decoration: const InputDecoration(labelText: 'Color'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: stock,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Total Stock'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final file = await _picker.pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 80,
+                      );
+                      if (file == null) return;
+                      imageBytes = await file.readAsBytes();
+                      imageName = file.name;
+                      setDlg(() {});
+                    },
+                    icon: const Icon(Icons.image_outlined),
+                    label: Text(imageName ?? 'Replace Image'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                await widget.controller.updateInventoryItem(
+                  productRef: item.productId,
+                  locationId: item.locationId,
+                  title: title.text.trim(),
+                  brand: brand.text.trim(),
+                  category: category.text.trim(),
+                  model: model.text.trim(),
+                  color: color.text.trim(),
+                  totalStock: int.tryParse(stock.text.trim()) ?? item.totalStock,
+                  imageBytes: imageBytes,
+                  imageFilename: imageName,
+                );
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _OrdersTab extends StatefulWidget {
-  const _OrdersTab({required this.state, required this.controller});
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Bulk Orders Tab
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
+class _BulkOrdersTab extends StatelessWidget {
+  const _BulkOrdersTab({required this.state, required this.controller});
   final dynamic state;
   final dynamic controller;
 
   @override
-  State<_OrdersTab> createState() => _OrdersTabState();
-}
-
-class _OrdersTabState extends State<_OrdersTab>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  static const _tabs = ['All', 'Pending', 'Completed'];
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: _tabs.length, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  List<StoreOrder> _filterOrders(int tabIndex) {
-    final orders = widget.state.orders as List<StoreOrder>;
-    return switch (tabIndex) {
-      1 =>
-        orders
-            .where(
-              (o) =>
-                  o.status == OrderStatus.draft ||
-                  o.status == OrderStatus.confirmed ||
-                  o.status == OrderStatus.packed ||
-                  o.status == OrderStatus.dispatched,
-            )
-            .toList(growable: false),
-      2 =>
-        orders
-            .where(
-              (o) =>
-                  o.status == OrderStatus.storeReceived ||
-                  o.status == OrderStatus.completed,
-            )
-            .toList(growable: false),
-      _ => orders,
-    };
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final syncQueue = widget.state.syncQueue as List;
+    final orders = state.bulkOrders as List<BulkOrder>;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+        Container(
+          color: AppTheme.white,
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
           child: Row(
             children: [
               Expanded(
                 child: Text(
-                  'All Orders',
+                  'Bulk Orders',
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
               ),
               IconButton(
-                onPressed: () => widget.controller.refreshForCurrentRole(),
+                onPressed: () => controller.fetchAndStoreBulkOrders(),
                 icon: const Icon(Icons.refresh_rounded),
-                style: IconButton.styleFrom(backgroundColor: AppTheme.bgCard),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                onPressed: () => widget.controller.syncPendingActions(),
-                icon: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    const Icon(Icons.sync_rounded),
-                    if (syncQueue.isNotEmpty)
-                      Positioned(
-                        right: -4,
-                        top: -4,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.warning,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '${syncQueue.length}',
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                style: IconButton.styleFrom(backgroundColor: AppTheme.bgCard),
+                style: IconButton.styleFrom(backgroundColor: AppTheme.bgCardLight),
               ),
             ],
           ),
         ),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 20),
-          decoration: BoxDecoration(
-            color: AppTheme.bgCardLight,
-            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          ),
-          child: TabBar(
-            controller: _tabController,
-            onTap: (_) => setState(() {}),
-            indicator: BoxDecoration(
-              gradient: AppTheme.primaryGradient,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            indicatorSize: TabBarIndicatorSize.tab,
-            labelColor: Colors.white,
-            unselectedLabelColor: AppTheme.textMuted,
-            labelStyle: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-            dividerHeight: 0,
-            tabs: _tabs.map((t) => Tab(text: t)).toList(),
-          ),
-        ),
-        const SizedBox(height: 12),
         Expanded(
-          child: AnimatedBuilder(
-            animation: _tabController,
-            builder: (context, _) {
-              final orders = _filterOrders(_tabController.index);
-              if (orders.isEmpty) {
-                return const Center(
-                  child: Text(
-                    'No orders found',
-                    style: TextStyle(color: AppTheme.textMuted),
+          child: orders.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.business_center_outlined,
+                        size: 48,
+                        color: AppTheme.s200,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'No bulk orders',
+                        style: TextStyle(color: AppTheme.s500),
+                      ),
+                    ],
                   ),
-                );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemCount: orders.length,
-                itemBuilder: (context, index) {
-                  final order = orders[index];
-                  final canConfirm = order.status == OrderStatus.dispatched;
-                  return GlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    order.orderId,
-                                    style: const TextStyle(
-                                      color: AppTheme.textPrimary,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _orderSummary(order),
-                                    style: const TextStyle(
-                                      color: AppTheme.textSecondary,
-                                      fontSize: 12,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    DateFormat(
-                                      'MMM dd, yyyy • h:mm a',
-                                    ).format(order.createdAt),
-                                    style: const TextStyle(
-                                      color: AppTheme.textMuted,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  if (order.warehouseName.isNotEmpty)
-                                    Text(
-                                      'Warehouse: ${order.warehouseName}',
-                                      style: const TextStyle(
-                                        color: AppTheme.textMuted,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            StatusBadge(status: order.status, compact: true),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        OrderJourneyStrip(status: order.status, compact: true),
-                        if (canConfirm) ...[
-                          const SizedBox(height: 12),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: GradientButton(
-                              label: 'Confirm Receipt',
-                              icon: Icons.check_circle_outline_rounded,
-                              compact: true,
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF4ADE80), Color(0xFF22C55E)],
-                              ),
-                              onPressed: () => _showReceiptDialog(
-                                context,
-                                order,
-                                widget.controller,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(20),
+                  itemCount: orders.length,
+                  itemBuilder: (_, i) => _BulkOrderCard(
+                    order: orders[i],
+                    onPack: () => controller.transitionBulkOrder(
+                      orders[i].id,
+                      'pack',
                     ),
-                  );
-                },
-              );
-            },
-          ),
+                    onDispatch: () => controller.transitionBulkOrder(
+                      orders[i].id,
+                      'dispatch',
+                    ),
+                    onCancel: () => controller.transitionBulkOrder(
+                      orders[i].id,
+                      'cancel',
+                    ),
+                  ),
+                ),
         ),
       ],
     );
   }
 }
 
-class _SettingsTab extends StatelessWidget {
-  const _SettingsTab({required this.controller, required this.state});
-
-  final dynamic controller;
-  final dynamic state;
-
-  @override
-  Widget build(BuildContext context) {
-    final session = state.session as UserSession?;
-
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Settings', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 24),
-          GlassCard(
-            child: Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: AppTheme.primaryGradient,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.person_rounded,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        session?.name ?? 'User',
-                        style: const TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
-                      ),
-                      Text(
-                        session?.email ?? '',
-                        style: const TextStyle(
-                          color: AppTheme.textMuted,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    session?.role == UserRole.warehouseManager
-                        ? 'Warehouse'
-                        : 'Store',
-                    style: const TextStyle(
-                      color: AppTheme.primary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          GlassCard(
-            child: Row(
-              children: [
-                Icon(
-                  (state.isOnline as bool)
-                      ? Icons.wifi_rounded
-                      : Icons.wifi_off_rounded,
-                  color: (state.isOnline as bool)
-                      ? AppTheme.success
-                      : AppTheme.error,
-                  size: 20,
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  (state.isOnline as bool) ? 'Online' : 'Offline',
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 14,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  'Location: ${session?.locationId ?? '—'}',
-                  style: const TextStyle(
-                    color: AppTheme.textMuted,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Spacer(),
-          GradientButton(
-            label: 'Sign Out',
-            icon: Icons.logout_rounded,
-            gradient: const LinearGradient(
-              colors: [Color(0xFFF87171), Color(0xFFEF4444)],
-            ),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  backgroundColor: AppTheme.bgCard,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-                  ),
-                  title: const Text(
-                    'Sign Out?',
-                    style: TextStyle(color: AppTheme.textPrimary),
-                  ),
-                  content: const Text(
-                    'Unsynced data will be lost.',
-                    style: TextStyle(color: AppTheme.textSecondary),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cancel'),
-                    ),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.error,
-                      ),
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        controller.logout();
-                      },
-                      child: const Text('Sign Out'),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WarehouseInventoryCard extends StatelessWidget {
-  const _WarehouseInventoryCard({
-    required this.item,
-    required this.onEdit,
-    required this.onDelete,
+class _BulkOrderCard extends StatelessWidget {
+  const _BulkOrderCard({
+    required this.order,
+    required this.onPack,
+    required this.onDispatch,
+    required this.onCancel,
   });
-
-  final InventoryItem item;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final BulkOrder order;
+  final VoidCallback onPack;
+  final VoidCallback onDispatch;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -1143,165 +1758,103 @@ class _WarehouseInventoryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ProductImage(
-                imageUrl: item.imageUrl,
-                localPath: item.localImagePath,
-                size: 60,
-                borderRadius: 12,
-              ),
-              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      order.orderId,
                       style: const TextStyle(
-                        color: AppTheme.textPrimary,
+                        color: AppTheme.s900,
                         fontWeight: FontWeight.w700,
-                        fontSize: 13,
+                        fontSize: 14,
                       ),
                     ),
-                    const SizedBox(height: 3),
                     Text(
-                      '${item.sku} • ${item.brand}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      order.clientName,
                       style: const TextStyle(
-                        color: AppTheme.textMuted,
+                        color: AppTheme.s500,
+                        fontSize: 12,
+                      ),
+                    ),
+                    Text(
+                      '${order.totalUnits} units â€¢ ${order.items.length} product(s)',
+                      style: const TextStyle(
+                        color: AppTheme.s500,
                         fontSize: 11,
                       ),
                     ),
-                    if (item.model.isNotEmpty || item.color.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        [
-                          item.model,
-                          item.color,
-                        ].where((part) => part.trim().isNotEmpty).join(' • '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppTheme.textMuted,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
+              _BulkStatusBadge(status: order.status),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: item.isLowStock
-                        ? AppTheme.error.withValues(alpha: 0.1)
-                        : AppTheme.success.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${item.availableStock}',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: item.isLowStock
-                              ? AppTheme.error
-                              : AppTheme.success,
-                        ),
-                      ),
-                      Text(
-                        'available',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: item.isLowStock
-                              ? AppTheme.error.withValues(alpha: 0.7)
-                              : AppTheme.textMuted,
-                        ),
-                      ),
-                    ],
+          const SizedBox(height: 10),
+          // Items preview
+          ...order.items.take(3).map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    'â€¢ ${item.title} Ã—${item.quantity}',
+                    style: const TextStyle(
+                      color: AppTheme.s500,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.warning.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'R${item.reservedStock}',
-                      style: const TextStyle(
-                        color: AppTheme.warning,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.info.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'T${item.totalStock}',
-                      style: const TextStyle(
-                        color: AppTheme.info,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
+          if (order.items.length > 3)
+            Text(
+              '+${order.items.length - 3} more items',
+              style: const TextStyle(color: AppTheme.s500, fontSize: 11),
+            ),
+          const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              IconButton(
-                icon: const Icon(
-                  Icons.edit_rounded,
-                  size: 18,
-                  color: AppTheme.info,
+              if (order.status == BulkOrderStatus.confirmed) ...[
+                OutlinedButton(
+                  onPressed: onCancel,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.red,
+                    side: const BorderSide(color: AppTheme.red),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                  child: const Text('Cancel'),
                 ),
-                onPressed: onEdit,
-              ),
-              IconButton(
-                icon: const Icon(
-                  Icons.delete_outline_rounded,
-                  size: 18,
-                  color: AppTheme.error,
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: onPack,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.amber,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                  child: const Text('Mark Packed'),
                 ),
-                onPressed: onDelete,
-              ),
+              ] else if (order.status == BulkOrderStatus.packed)
+                FilledButton.icon(
+                  onPressed: onDispatch,
+                  icon: const Icon(Icons.local_shipping_rounded, size: 14),
+                  label: const Text('Dispatch'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.green,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                ),
             ],
           ),
         ],
@@ -1310,303 +1863,525 @@ class _WarehouseInventoryCard extends StatelessWidget {
   }
 }
 
-void _showConfirmDialog(
-  BuildContext context,
-  String title,
-  String subtitle,
-  VoidCallback onConfirm,
-) {
-  showDialog(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: AppTheme.bgCard,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+class _BulkStatusBadge extends StatelessWidget {
+  const _BulkStatusBadge({required this.status});
+  final BulkOrderStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, label) = switch (status) {
+      BulkOrderStatus.confirmed => (AppTheme.primary, 'Confirmed'),
+      BulkOrderStatus.packed => (AppTheme.amber, 'Packed'),
+      BulkOrderStatus.dispatched => (const Color(0xFF7C3AED), 'Dispatched'),
+      BulkOrderStatus.completed => (AppTheme.green, 'Completed'),
+      BulkOrderStatus.cancelled => (AppTheme.red, 'Cancelled'),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      title: Text(title, style: const TextStyle(color: AppTheme.textPrimary)),
-      content: Text(
-        subtitle,
-        style: const TextStyle(color: AppTheme.textSecondary),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () {
-            Navigator.pop(ctx);
-            onConfirm();
-          },
-          child: const Text('Confirm'),
-        ),
-      ],
-    ),
-  );
+    );
+  }
 }
 
-void _showOrderDetails(
-  BuildContext context,
-  dynamic controller,
-  StoreOrder order,
-) {
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (sheetContext) {
-      final canApprove =
-          order.status == OrderStatus.draft ||
-          order.status == OrderStatus.confirmed ||
-          order.status == OrderStatus.pendingWarehouseApproval;
-      final canPack =
-          order.status == OrderStatus.confirmed ||
-          order.status == OrderStatus.warehouseApproved;
-      final canDispatch = order.status == OrderStatus.packed;
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Staff Tab
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-      return DraggableScrollableSheet(
-        initialChildSize: 0.76,
-        minChildSize: 0.55,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) {
-          return Container(
-            decoration: BoxDecoration(
-              color: AppTheme.bgCard,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
+class _StaffTab extends ConsumerWidget {
+  const _StaffTab({required this.state, required this.controller});
+  final dynamic state;
+  final dynamic controller;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final appState = ref.watch(appControllerProvider);
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final members = appState.staffMembers;
+    final checkedIn =
+        members.where((m) => m.todayAttendance?.isCheckedIn == true).length;
+
+    return Column(
+      children: [
+        Container(
+          color: AppTheme.white,
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Staff',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    Text(
+                      '$checkedIn / ${members.length} checked in today',
+                      style: const TextStyle(
+                        color: AppTheme.s500,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              border: Border.all(
-                color: AppTheme.surfaceLight.withValues(alpha: 0.22),
+              IconButton(
+                onPressed: ctrl.refreshData,
+                icon: const Icon(Icons.refresh_rounded),
+                style: IconButton.styleFrom(backgroundColor: AppTheme.bgCardLight),
               ),
-            ),
-            child: ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+            ],
+          ),
+        ),
+        Expanded(
+          child: members.isEmpty
+              ? Center(
+                  child: appState.loading
+                      ? const CircularProgressIndicator()
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.group_outlined,
+                              color: AppTheme.s200,
+                              size: 48,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'No staff members',
+                              style: TextStyle(color: AppTheme.s500),
+                            ),
+                          ],
+                        ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: members.length,
+                  itemBuilder: (ctx, i) => _StaffMemberCard(
+                    member: members[i],
+                    onCreateTask: () =>
+                        _showTaskSheet(context, members[i], ctrl),
+                    onViewDetail: () =>
+                        _showDetailSheet(context, members[i], ctrl),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  void _showTaskSheet(BuildContext context, StaffMember member, dynamic ctrl) {
+    final titleCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    TaskPriority selectedPriority = TaskPriority.medium;
+    DateTime dueDate = DateTime.now().add(const Duration(days: 1));
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Assign Task to ${member.name}',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: titleCtrl,
+                decoration: const InputDecoration(labelText: 'Task Title *'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: descCtrl,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'Description'),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: TaskPriority.values.map((p) {
+                  final color = _pColor(p);
+                  final sel = selectedPriority == p;
+                  return GestureDetector(
+                    onTap: () => setModal(() => selectedPriority = p),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: sel
+                            ? color.withValues(alpha: 0.15)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: sel ? color : AppTheme.s200,
+                        ),
+                      ),
+                      child: Text(
+                        p.label,
+                        style: TextStyle(
+                          color: sel ? color : AppTheme.s500,
+                          fontSize: 13,
+                          fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Text(
+                    'Due: ${DateFormat('d MMM yyyy').format(dueDate)}',
+                    style: const TextStyle(color: AppTheme.s500),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: dueDate,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (picked != null) setModal(() => dueDate = picked);
+                    },
+                    child: const Text('Pick Date'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    if (titleCtrl.text.trim().isEmpty) return;
+                    ctrl.createTask(
+                      title: titleCtrl.text.trim(),
+                      description: descCtrl.text.trim(),
+                      assignedToId: member.userId,
+                      priority: selectedPriority,
+                      dueDate: dueDate,
+                    );
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('Create Task'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDetailSheet(
+    BuildContext context,
+    StaffMember member,
+    dynamic ctrl,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppTheme.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        maxChildSize: 0.9,
+        builder: (ctx, scroll) => ListView(
+          controller: scroll,
+          padding: const EdgeInsets.all(20),
+          children: [
+            Row(
               children: [
-                Center(
-                  child: Container(
-                    width: 42,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceLight.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(999),
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: AppTheme.primary.withValues(alpha: 0.1),
+                  child: Text(
+                    member.initials,
+                    style: const TextStyle(
+                      color: AppTheme.primary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
-                Text(
-                  order.orderId,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '${order.storeName} → ${order.warehouseName}',
-                  style: const TextStyle(color: AppTheme.textSecondary),
-                ),
-                const SizedBox(height: 12),
-                StatusBadge(status: order.status),
-                const SizedBox(height: 12),
-                OrderJourneyStrip(status: order.status),
-                const SizedBox(height: 16),
-                GlassCard(
+                const SizedBox(width: 14),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Item Details',
-                        style: TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontWeight: FontWeight.w700,
+                      Text(
+                        member.name,
+                        style: const TextStyle(
+                          color: AppTheme.s900,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 10),
                       Text(
-                        'Created: ${DateFormat('MMM dd, yyyy • h:mm a').format(order.createdAt)}',
-                        style: const TextStyle(color: AppTheme.textMuted),
-                      ),
-                      Text(
-                        'Updated: ${DateFormat('MMM dd, yyyy • h:mm a').format(order.updatedAt)}',
-                        style: const TextStyle(color: AppTheme.textMuted),
-                      ),
-                      const SizedBox(height: 10),
-                      ...order.items.map(
-                        (item) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppTheme.bgCardLight,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppTheme.surfaceLight),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.inventory_2_rounded,
-                                  size: 16,
-                                  color: AppTheme.textMuted,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    '${item.title} • ${item.sku}',
-                                    style: const TextStyle(
-                                      color: AppTheme.textSecondary,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                                Text(
-                                  'Qty ${item.quantity}',
-                                  style: const TextStyle(
-                                    color: AppTheme.textPrimary,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                        member.designation,
+                        style: const TextStyle(
+                          color: AppTheme.s500,
+                          fontSize: 13,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                if (canApprove)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _showConfirmDialog(
-                              context,
-                              'Reject Order?',
-                              'Send this order back to the store.',
-                              () => controller.transitionOrder(
-                                order,
-                                OrderStatus.warehouseRejected,
-                              ),
-                            );
-                          },
-                          child: const Text('Deny'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: GradientButton(
-                          label: 'Accept',
-                          icon: Icons.verified_rounded,
-                          onPressed: () {
-                            Navigator.pop(context);
-                            controller.transitionOrder(
-                              order,
-                              OrderStatus.warehouseApproved,
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  )
-                else if (canPack)
-                  GradientButton(
-                    label: 'Mark Packed',
-                    icon: Icons.inventory_2_rounded,
-                    onPressed: () {
-                      Navigator.pop(context);
-                      controller.transitionOrder(order, OrderStatus.packed);
-                    },
-                  )
-                else if (canDispatch)
-                  GradientButton(
-                    label: 'Dispatch',
-                    icon: Icons.local_shipping_rounded,
-                    gradient: AppTheme.accentGradient,
-                    onPressed: () {
-                      Navigator.pop(context);
-                      controller.transitionOrder(order, OrderStatus.dispatched);
-                    },
-                  )
-                else
-                  Text(
-                    'No action required right now.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
+                _StaffBadge(status: member.status),
               ],
             ),
-          );
-        },
-      );
-    },
-  );
-}
-
-void _showReceiptDialog(
-  BuildContext context,
-  StoreOrder order,
-  dynamic controller,
-) {
-  showDialog(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: AppTheme.bgCard,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-      ),
-      title: const Text(
-        'Confirm Receipt?',
-        style: TextStyle(color: AppTheme.textPrimary),
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Please verify all items have been received:',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-          ),
-          const SizedBox(height: 12),
-          ...order.items.map(
-            (i) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
+            const SizedBox(height: 16),
+            const Divider(),
+            _DRow(label: 'Email', value: member.email),
+            _DRow(label: 'Code', value: member.employeeCode),
+            _DRow(label: 'Open Tasks', value: '${member.openTaskCount}'),
+            const SizedBox(height: 12),
+            const Text(
+              'Today',
+              style: TextStyle(
+                color: AppTheme.s900,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (member.todayAttendance == null)
+              const Text(
+                'Not checked in',
+                style: TextStyle(color: AppTheme.s500),
+              )
+            else
+              Row(
                 children: [
                   const Icon(
-                    Icons.check_box_outline_blank_rounded,
-                    size: 16,
-                    color: AppTheme.textMuted,
+                    Icons.check_circle_rounded,
+                    color: AppTheme.green,
+                    size: 18,
                   ),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '${i.title}: qty ${i.quantity}',
-                      style: const TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 13,
-                      ),
+                  Text(
+                    'In at ${member.todayAttendance!.checkInTime != null ? DateFormat("hh:mm a").format(member.todayAttendance!.checkInTime!) : "â€”"}',
+                    style: const TextStyle(color: AppTheme.green),
+                  ),
+                ],
+              ),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showTaskSheet(context, member, ctrl);
+              },
+              icon: const Icon(Icons.add_task_rounded),
+              label: const Text('Assign Task'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 46),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _pColor(TaskPriority p) => switch (p) {
+        TaskPriority.urgent => AppTheme.red,
+        TaskPriority.high => AppTheme.amber,
+        TaskPriority.medium => AppTheme.primary,
+        TaskPriority.low => AppTheme.green,
+      };
+}
+
+// â”€â”€ Shared helper widgets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+class _StaffMemberCard extends StatelessWidget {
+  const _StaffMemberCard({
+    required this.member,
+    required this.onCreateTask,
+    required this.onViewDetail,
+  });
+  final StaffMember member;
+  final VoidCallback onCreateTask;
+  final VoidCallback onViewDetail;
+
+  @override
+  Widget build(BuildContext context) {
+    final checkedIn = member.todayAttendance?.isCheckedIn ?? false;
+
+    return GestureDetector(
+      onTap: onViewDetail,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.s200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: (checkedIn ? AppTheme.green : AppTheme.s200)
+                  .withValues(alpha: 0.15),
+              child: Text(
+                member.initials,
+                style: TextStyle(
+                  color: checkedIn ? AppTheme.green : AppTheme.s500,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    member.name,
+                    style: const TextStyle(
+                      color: AppTheme.s900,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    member.designation,
+                    style: const TextStyle(
+                      color: AppTheme.s500,
+                      fontSize: 12,
                     ),
                   ),
                 ],
               ),
             ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _StaffBadge(status: member.status),
+                if (member.openTaskCount > 0) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '${member.openTaskCount} tasks',
+                    style: const TextStyle(
+                      color: AppTheme.amber,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(width: 6),
+            IconButton(
+              onPressed: onCreateTask,
+              icon: const Icon(
+                Icons.add_task_rounded,
+                color: AppTheme.primary,
+                size: 20,
+              ),
+              tooltip: 'Assign Task',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StaffBadge extends StatelessWidget {
+  const _StaffBadge({required this.status});
+  final StaffStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, label) = switch (status) {
+      StaffStatus.active => (AppTheme.green, 'Active'),
+      StaffStatus.inactive => (AppTheme.red, 'Inactive'),
+      StaffStatus.onLeave => (AppTheme.amber, 'Leave'),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _DRow extends StatelessWidget {
+  const _DRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: AppTheme.s500, fontSize: 13),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppTheme.s900,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: AppTheme.success),
-          onPressed: () {
-            Navigator.pop(ctx);
-            controller.transitionOrder(order, OrderStatus.storeReceived);
-          },
-          child: const Text('Confirm'),
-        ),
-      ],
-    ),
-  );
+    );
+  }
 }

@@ -16,8 +16,22 @@ class AppState {
     required this.salaryPayouts,
     required this.leaveRecords,
     required this.adminInventory,
-    required this.inventoryCatalog,
     required this.message,
+    // Staff Management
+    required this.staffMembers,
+    required this.myTasks,
+    this.todayAttendance,
+    required this.staffAttendance,
+    required this.attendanceSummary,
+    // New features
+    required this.bulkOrders,
+    required this.clients,
+    required this.cart,
+    required this.storeInventory,
+    required this.stockMovements,
+    // Notifications
+    required this.notifications,
+    required this.unreadNotificationCount,
   });
 
   final bool initialized;
@@ -34,10 +48,28 @@ class AppState {
   final List<SalaryPayoutRecord> salaryPayouts;
   final List<LeaveRecord> leaveRecords;
   final List<InventoryItem> adminInventory;
-  final InventoryCatalog inventoryCatalog;
   final String? message;
 
+  // ── Staff Management ──────────────────────────────────────────────────────
+  final List<StaffMember> staffMembers;
+  final List<Task> myTasks;
+  final StaffAttendanceRecord? todayAttendance;
+  final List<StaffAttendanceRecord> staffAttendance;
+  final List<AttendanceMonthlySummary> attendanceSummary;
+
+  // ── New features ──────────────────────────────────────────────────────────
+  final List<BulkOrder> bulkOrders;
+  final List<Client> clients;
+  final List<CartItem> cart;
+  final List<InventoryItem> storeInventory;
+  final List<StockMovement> stockMovements;
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  final List<AppNotification> notifications;
+  final int unreadNotificationCount;
+
   bool get isLoggedIn => session != null;
+  int get cartItemCount => cart.fold(0, (sum, c) => sum + c.quantity);
 
   AppState copyWith({
     bool? initialized,
@@ -55,9 +87,21 @@ class AppState {
     List<SalaryPayoutRecord>? salaryPayouts,
     List<LeaveRecord>? leaveRecords,
     List<InventoryItem>? adminInventory,
-    InventoryCatalog? inventoryCatalog,
     String? message,
     bool clearMessage = false,
+    List<StaffMember>? staffMembers,
+    List<Task>? myTasks,
+    StaffAttendanceRecord? todayAttendance,
+    bool clearTodayAttendance = false,
+    List<StaffAttendanceRecord>? staffAttendance,
+    List<AttendanceMonthlySummary>? attendanceSummary,
+    List<BulkOrder>? bulkOrders,
+    List<Client>? clients,
+    List<CartItem>? cart,
+    List<InventoryItem>? storeInventory,
+    List<StockMovement>? stockMovements,
+    List<AppNotification>? notifications,
+    int? unreadNotificationCount,
   }) {
     return AppState(
       initialized: initialized ?? this.initialized,
@@ -74,8 +118,21 @@ class AppState {
       salaryPayouts: salaryPayouts ?? this.salaryPayouts,
       leaveRecords: leaveRecords ?? this.leaveRecords,
       adminInventory: adminInventory ?? this.adminInventory,
-      inventoryCatalog: inventoryCatalog ?? this.inventoryCatalog,
       message: clearMessage ? null : (message ?? this.message),
+      staffMembers: staffMembers ?? this.staffMembers,
+      myTasks: myTasks ?? this.myTasks,
+      todayAttendance: clearTodayAttendance
+          ? null
+          : (todayAttendance ?? this.todayAttendance),
+      staffAttendance: staffAttendance ?? this.staffAttendance,
+      attendanceSummary: attendanceSummary ?? this.attendanceSummary,
+      bulkOrders: bulkOrders ?? this.bulkOrders,
+      clients: clients ?? this.clients,
+      cart: cart ?? this.cart,
+      storeInventory: storeInventory ?? this.storeInventory,
+      stockMovements: stockMovements ?? this.stockMovements,
+      notifications: notifications ?? this.notifications,
+      unreadNotificationCount: unreadNotificationCount ?? this.unreadNotificationCount,
     );
   }
 
@@ -94,7 +151,18 @@ class AppState {
     salaryPayouts: <SalaryPayoutRecord>[],
     leaveRecords: <LeaveRecord>[],
     adminInventory: <InventoryItem>[],
-    inventoryCatalog: InventoryCatalog.empty,
     message: null,
+    staffMembers: <StaffMember>[],
+    myTasks: <Task>[],
+    todayAttendance: null,
+    staffAttendance: <StaffAttendanceRecord>[],
+    attendanceSummary: <AttendanceMonthlySummary>[],
+    bulkOrders: <BulkOrder>[],
+    clients: <Client>[],
+    cart: <CartItem>[],
+    storeInventory: <InventoryItem>[],
+    stockMovements: <StockMovement>[],
+    notifications: <AppNotification>[],
+    unreadNotificationCount: 0,
   );
 }

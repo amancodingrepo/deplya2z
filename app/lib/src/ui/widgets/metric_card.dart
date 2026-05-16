@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 
-/// Compact dashboard metric with clear hierarchy.
+/// KPI metric card — white card with colored icon accent.
 class MetricCard extends StatelessWidget {
   const MetricCard({
     super.key,
@@ -27,16 +27,10 @@ class MetricCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            gradient: AppTheme.cardGradient,
+            color: AppTheme.white,
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-            border: Border.all(color: color.withValues(alpha: 0.32), width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.12),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
+            border: Border.all(color: AppTheme.s200, width: 1),
+            boxShadow: AppTheme.cardShadow,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,7 +39,7 @@ class MetricCard extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
+                  color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: color, size: 18),
@@ -54,10 +48,11 @@ class MetricCard extends StatelessWidget {
               Text(
                 value.toString(),
                 style: TextStyle(
-                  fontSize: 22,
+                  fontSize: 24,
                   fontWeight: FontWeight.w800,
-                  color: color,
-                  letterSpacing: -0.3,
+                  color: AppTheme.s900,
+                  letterSpacing: -0.5,
+                  fontFamily: 'Sora',
                 ),
               ),
               const SizedBox(height: 2),
@@ -65,7 +60,7 @@ class MetricCard extends StatelessWidget {
                 label,
                 style: const TextStyle(
                   fontSize: 11,
-                  color: AppTheme.textMuted,
+                  color: AppTheme.s500,
                   fontWeight: FontWeight.w500,
                 ),
               ),

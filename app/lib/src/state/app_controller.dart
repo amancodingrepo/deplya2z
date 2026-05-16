@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:math' show asin, cos, pi, sin, sqrt;
+import 'dart:typed_data';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:uuid/uuid.dart';
 
-import '../core/app_logger.dart';
 import '../core/local_store.dart';
 import '../core/models.dart';
 import '../data/mock_api.dart';
@@ -16,7 +18,6 @@ class AppController extends StateNotifier<AppState> {
   final LocalStore _store;
   final MockApi _api;
   final _uuid = const Uuid();
-  Timer? _liveRefreshTicker;
 
   String _defaultWarehouseRef() {
     for (final location in state.locations) {
@@ -27,82 +28,19 @@ class AppController extends StateNotifier<AppState> {
     return 'WH01';
   }
 
-  String _locationCodeFor(String locationRef) {
-    for (final location in state.locations) {
-      if (location.id == locationRef || location.code == locationRef) {
-        return location.code;
-      }
-    }
-    return locationRef;
-  }
-
-  String _locationNameFor(String locationRef) {
-    for (final location in state.locations) {
-      if (location.id == locationRef || location.code == locationRef) {
-        return location.name;
-      }
-    }
-    return locationRef;
-  }
-
-  InventoryCatalog _mergeInventoryCatalog({
-    Iterable<Product> products = const <Product>[],
-    Iterable<InventoryItem> inventory = const <InventoryItem>[],
-  }) {
-    return state.inventoryCatalog.merge(
-      products: products,
-      inventory: inventory,
-    );
-  }
-
-  String _buildReadableOrderId({
-    required String warehouseRef,
-    required String storeRef,
-    required DateTime now,
-  }) {
-    final datePart =
-        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-    final warehouseCode = _locationCodeFor(warehouseRef);
-    final storeCode = _locationCodeFor(storeRef);
-    final sequence =
-        state.orders.where((order) {
-          final sameWarehouse =
-              order.warehouseId == warehouseRef ||
-              order.warehouseId == warehouseCode;
-          final sameStore =
-              order.storeId == storeRef || order.storeId == storeCode;
-          final sameDate =
-              order.createdAt.year == now.year &&
-              order.createdAt.month == now.month &&
-              order.createdAt.day == now.day;
-          return sameWarehouse && sameStore && sameDate;
-        }).length +
-        1;
-
-    return 'ORD-$warehouseCode-$storeCode-$datePart-${sequence.toString().padLeft(3, '0')}';
-  }
-
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
-  void _startLiveRefreshTicker() {
-    _liveRefreshTicker?.cancel();
-    _liveRefreshTicker = Timer.periodic(const Duration(seconds: 12), (_) {
-      if (!state.isOnline || state.session == null) {
-        return;
-      }
-      unawaited(refreshForCurrentRole());
-    });
-  }
+  // ── Init ──────────────────────────────────────────────────────────────────
 
   Future<void> initialize() async {
-    AppLogger.info('Initializing app controller');
     await _store.init();
 
     final session = _store.readSession();
     final orders = _store.readOrders();
     final inventory = _store.readInventory();
     final queue = _store.readQueue();
-    final inventoryCatalog = _store.readInventoryCatalog();
+    final tasks = _store.readTasks();
+    final todayAttendance = _store.readTodayAttendance();
 
     state = state.copyWith(
       initialized: true,
@@ -110,7 +48,8 @@ class AppController extends StateNotifier<AppState> {
       orders: orders,
       inventory: inventory,
       syncQueue: queue,
-      inventoryCatalog: inventoryCatalog.merge(inventory: inventory),
+      myTasks: tasks,
+      todayAttendance: todayAttendance,
       isOnline: true,
     );
 
@@ -120,11 +59,9 @@ class AppController extends StateNotifier<AppState> {
       state = state.copyWith(isOnline: online);
       if (online) {
         unawaited(syncPendingActions());
-        unawaited(refreshForCurrentRole());
+        unawaited(refreshData());
       }
     });
-
-    _startLiveRefreshTicker();
 
     if (session != null) {
       if (session.shouldRefreshToken) {
@@ -141,8 +78,7 @@ class AppController extends StateNotifier<AppState> {
           );
           await _store.writeSession(refreshed);
           state = state.copyWith(session: refreshed);
-        } catch (error) {
-          AppLogger.error('Token refresh failed; clearing local session', error: error);
+        } catch (_) {
           await _store.clearAll();
           state = state.copyWith(clearSession: true);
           return;
@@ -150,23 +86,12 @@ class AppController extends StateNotifier<AppState> {
       }
 
       if (state.isOnline) {
-        await _verifyBackendReachability();
-        await refreshForCurrentRole();
+        await refreshData();
       }
     }
   }
 
-  Future<bool> _verifyBackendReachability() async {
-    final healthy = await _api.healthCheck();
-    if (!healthy) {
-      state = state.copyWith(
-        message:
-            'Backend is not reachable from this device. Check API URL, server port/firewall, and Android network policy.',
-      );
-      return false;
-    }
-    return true;
-  }
+  // ── Auth ──────────────────────────────────────────────────────────────────
 
   Future<void> login({
     required String email,
@@ -182,11 +107,6 @@ class AppController extends StateNotifier<AppState> {
 
     state = state.copyWith(loading: true, clearMessage: true);
     try {
-      final backendReady = await _verifyBackendReachability();
-      if (!backendReady) {
-        state = state.copyWith(loading: false);
-        return;
-      }
       final session = await _api.login(
         email: email,
         password: password,
@@ -196,19 +116,22 @@ class AppController extends StateNotifier<AppState> {
       state = state.copyWith(session: session, loading: false);
       await refreshData();
     } catch (error) {
-      AppLogger.error('Login failed', error: error);
-      state = state.copyWith(loading: false, message: error.toString());
+      // Strip the leading "Exception: " prefix that Dart adds when rethrowing
+      final raw = error.toString();
+      final message = raw.startsWith('Exception: ') ? raw.substring(11) : raw;
+      state = state.copyWith(loading: false, message: message);
     }
   }
 
   Future<void> logout() async {
-    _liveRefreshTicker?.cancel();
     await _store.clearAll();
     state = AppState.initial.copyWith(
       initialized: true,
       isOnline: state.isOnline,
     );
   }
+
+  // ── Data refresh ──────────────────────────────────────────────────────────
 
   Future<void> refreshData() async {
     final session = state.session;
@@ -226,10 +149,24 @@ class AppController extends StateNotifier<AppState> {
         );
         final adminInventory = await _api.fetchInventory('', session.token);
         final orders = await _api.fetchOrders(session);
-        final inventoryCatalog = _mergeInventoryCatalog(
-          inventory: adminInventory,
-        );
-        await _store.writeInventoryCatalog(inventoryCatalog);
+
+        // Fetch bulk orders and clients — non-critical
+        List<BulkOrder> bulkOrders = state.bulkOrders;
+        List<Client> clients = state.clients;
+        try {
+          bulkOrders = await _api.fetchBulkOrders(session.token);
+          clients = await _api.fetchClients(session.token);
+        } catch (_) {}
+
+        // Fetch notifications (non-critical)
+        List<AppNotification> notifs = state.notifications;
+        int unread = state.unreadNotificationCount;
+        try {
+          final nr = await _api.fetchNotifications(token: session.token);
+          notifs = nr.items;
+          unread = nr.unreadCount;
+        } catch (_) {}
+
         state = state.copyWith(
           loading: false,
           employees: users,
@@ -238,14 +175,23 @@ class AppController extends StateNotifier<AppState> {
           salaryPayouts: staff.salaryPayouts,
           leaveRecords: staff.leaveRecords,
           adminInventory: adminInventory,
-          inventoryCatalog: inventoryCatalog,
           products: const <Product>[],
           orders: orders,
           inventory: const <InventoryItem>[],
+          bulkOrders: bulkOrders,
+          clients: clients,
+          notifications: notifs,
+          unreadNotificationCount: unread,
         );
         return;
       }
 
+      if (session.role == UserRole.staff) {
+        await _refreshStaffData(session);
+        return;
+      }
+
+      // Warehouse manager / Store manager
       final products = await _api.fetchProducts(session.token);
       final inventory = await _api.fetchInventory(
         session.locationId,
@@ -253,15 +199,54 @@ class AppController extends StateNotifier<AppState> {
       );
       final orders = await _api.fetchOrders(session);
       final locations = await _api.fetchLocations(session.token);
-      final staff = await _api.fetchMyStaffRecords(session.token);
+      final staffBundle = await _api.fetchMyStaffRecords(session.token);
+
+      // Load staff members for the manager's location
+      List<StaffMember> staffMembers = [];
+      List<AttendanceMonthlySummary> summaries = [];
+      try {
+        staffMembers = await _api.fetchStaffMembers(
+          token: session.token,
+          locationId: session.locationId,
+        );
+        final now = DateTime.now();
+        summaries = await _api.fetchAttendanceSummary(
+          token: session.token,
+          locationId: session.locationId,
+          month: now.month,
+          year: now.year,
+        );
+      } catch (_) {
+        // non-critical — gracefully ignore if not implemented yet
+      }
+
+      // Warehouse manager: also fetch bulk orders
+      List<BulkOrder> bulkOrders = state.bulkOrders;
+      if (session.role == UserRole.warehouseManager) {
+        try {
+          bulkOrders = await _api.fetchBulkOrders(session.token);
+        } catch (_) {}
+      }
+
+      // Store manager: storeInventory = location-filtered inventory
+      final storeInventory = session.role == UserRole.storeManager
+          ? inventory
+          : state.storeInventory;
 
       await _store.replaceInventory(inventory);
       await _store.replaceOrders(orders);
-      final inventoryCatalog = _mergeInventoryCatalog(
-        products: products,
-        inventory: inventory,
-      );
-      await _store.writeInventoryCatalog(inventoryCatalog);
+      if (staffMembers.isNotEmpty) {
+        await _store.replaceStaff(staffMembers);
+      }
+
+      // Fetch notifications (non-critical)
+      List<AppNotification> notifications = state.notifications;
+      int unreadCount = state.unreadNotificationCount;
+      try {
+        final result = await _api.fetchNotifications(token: session.token);
+        notifications = result.items;
+        unreadCount = result.unreadCount;
+      } catch (_) {}
 
       state = state.copyWith(
         loading: false,
@@ -269,15 +254,19 @@ class AppController extends StateNotifier<AppState> {
         inventory: inventory,
         orders: orders,
         locations: locations,
-        attendanceRecords: staff.attendance,
-        salaryPayouts: staff.salaryPayouts,
-        leaveRecords: staff.leaveRecords,
+        attendanceRecords: staffBundle.attendance,
+        salaryPayouts: staffBundle.salaryPayouts,
+        leaveRecords: staffBundle.leaveRecords,
         adminInventory: const <InventoryItem>[],
         employees: const <EmployeeUser>[],
-        inventoryCatalog: inventoryCatalog,
+        staffMembers: staffMembers,
+        attendanceSummary: summaries,
+        bulkOrders: bulkOrders,
+        storeInventory: storeInventory,
+        notifications: notifications,
+        unreadNotificationCount: unreadCount,
       );
     } catch (error) {
-      AppLogger.error('Refresh data failed', error: error);
       state = state.copyWith(
         loading: false,
         message: error.toString().replaceFirst('Exception: ', ''),
@@ -285,94 +274,92 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
-  Future<void> refreshForCurrentRole() async {
+  // ── Notification methods ──────────────────────────────────────────────────
+
+  Future<void> fetchNotifications() async {
     final session = state.session;
-    if (session == null || !state.isOnline) {
-      return;
-    }
-
-    if (session.role == UserRole.superadmin) {
-      await refreshData();
-      return;
-    }
-
-    if (session.role == UserRole.warehouseManager) {
-      await _refreshWarehouseView();
-      return;
-    }
-
-    await _refreshStoreView();
-  }
-
-  Future<void> refreshOrdersOnly() async {
-    final session = state.session;
-    if (session == null || !state.isOnline) {
-      return;
-    }
-
+    if (session == null || !state.isOnline) return;
     try {
-      final orders = await _api.fetchOrders(session);
-      await _store.replaceOrders(orders);
-      state = state.copyWith(orders: orders);
-    } catch (error) {
-      AppLogger.error('Refresh orders failed', error: error);
+      final result = await _api.fetchNotifications(token: session.token);
       state = state.copyWith(
-        message: error.toString().replaceFirst('Exception: ', ''),
+        notifications: result.items,
+        unreadNotificationCount: result.unreadCount,
       );
-    }
+    } catch (_) {}
   }
 
-  Future<void> refreshInventoryOnly() async {
+  Future<void> markNotificationRead(String notificationId) async {
     final session = state.session;
-    if (session == null || !state.isOnline) {
-      return;
-    }
-
+    if (session == null) return;
     try {
-      final inventory = await _api.fetchInventory(
-        session.locationId,
-        session.token,
+      await _api.markNotificationRead(
+        token: session.token,
+        notificationId: notificationId,
       );
-      await _store.replaceInventory(inventory);
-      final inventoryCatalog = _mergeInventoryCatalog(inventory: inventory);
-      await _store.writeInventoryCatalog(inventoryCatalog);
-      state = state.copyWith(inventory: inventory);
-    } catch (error) {
-      AppLogger.error('Refresh inventory failed', error: error);
       state = state.copyWith(
-        message: error.toString().replaceFirst('Exception: ', ''),
+        notifications: state.notifications
+            .map((n) => n.id == notificationId ? n.copyWith(isRead: true) : n)
+            .toList(),
+        unreadNotificationCount: (state.unreadNotificationCount - 1).clamp(0, 9999),
       );
-    }
+    } catch (_) {}
   }
 
-  Future<void> _refreshWarehouseView() async {
+  Future<void> markAllNotificationsRead() async {
     final session = state.session;
-    if (session == null || !state.isOnline) {
-      return;
-    }
-
-    state = state.copyWith(loading: true);
+    if (session == null) return;
     try {
-      final inventory = await _api.fetchInventory(
-        session.locationId,
-        session.token,
+      await _api.markAllNotificationsRead(token: session.token);
+      state = state.copyWith(
+        notifications: state.notifications
+            .map((n) => n.copyWith(isRead: true))
+            .toList(),
+        unreadNotificationCount: 0,
       );
-      final orders = await _api.fetchOrders(session);
-      final locations = state.locations.isEmpty
-          ? await _api.fetchLocations(session.token)
-          : state.locations;
+    } catch (_) {}
+  }
 
-      await _store.replaceInventory(inventory);
-      await _store.replaceOrders(orders);
-      final inventoryCatalog = _mergeInventoryCatalog(inventory: inventory);
-      await _store.writeInventoryCatalog(inventoryCatalog);
+  Future<void> _refreshStaffData(UserSession session) async {
+    try {
+      final locations = await _api.fetchLocations(session.token);
+      final tasks = await _api.fetchTasks(
+        token: session.token,
+        assignedToId: session.id,
+      );
+      final now = DateTime.now();
+      final attendance = await _api.fetchStaffAttendance(
+        token: session.token,
+        month: now.month,
+        year: now.year,
+      );
+
+      // Find today's record
+      final todayDate = DateTime(now.year, now.month, now.day);
+      StaffAttendanceRecord? todayRecord;
+      try {
+        todayRecord = attendance.firstWhere(
+          (r) {
+            final d = r.date;
+            return d.year == todayDate.year &&
+                d.month == todayDate.month &&
+                d.day == todayDate.day;
+          },
+        );
+      } catch (_) {
+        todayRecord = null;
+      }
+
+      await _store.replaceTasks(tasks);
+      if (todayRecord != null) {
+        await _store.writeTodayAttendance(todayRecord);
+      }
 
       state = state.copyWith(
         loading: false,
-        inventory: inventory,
-        orders: orders,
         locations: locations,
-        inventoryCatalog: inventoryCatalog,
+        myTasks: tasks,
+        staffAttendance: attendance,
+        todayAttendance: todayRecord,
       );
     } catch (error) {
       state = state.copyWith(
@@ -382,34 +369,138 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
-  Future<void> _refreshStoreView() async {
+  // ── GPS Attendance ────────────────────────────────────────────────────────
+
+  /// Requests location permission and returns the current [Position].
+  /// Throws a descriptive [Exception] on permission denial or service
+  /// unavailability.
+  Future<Position> _getPosition() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception(
+        'Location services are disabled. Please enable GPS and try again.',
+      );
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        throw Exception(
+          'Location permission denied. Please allow location access.',
+        );
+      }
+    }
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception(
+        'Location permission permanently denied. '
+        'Enable it in App Settings → Permissions.',
+      );
+    }
+
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+      timeLimit: const Duration(seconds: 15),
+    );
+  }
+
+  /// Haversine distance in metres between two GPS coordinates.
+  double _haversineMeters(
+    double lat1,
+    double lng1,
+    double lat2,
+    double lng2,
+  ) {
+    const earthRadius = 6371000.0; // metres
+    final dLat = _toRad(lat2 - lat1);
+    final dLng = _toRad(lng2 - lng1);
+    final a =
+        sin(dLat / 2) * sin(dLat / 2) +
+        cos(_toRad(lat1)) *
+            cos(_toRad(lat2)) *
+            sin(dLng / 2) *
+            sin(dLng / 2);
+    final c = 2 * asin(sqrt(a));
+    return earthRadius * c;
+  }
+
+  double _toRad(double deg) => deg * pi / 180;
+
+  /// GPS check-in for the currently logged-in staff member.
+  Future<void> staffCheckIn({String? notes}) async {
     final session = state.session;
-    if (session == null || !state.isOnline) {
+    if (session == null || session.role != UserRole.staff) {
+      state = state.copyWith(message: 'Only staff can check in.');
       return;
     }
 
-    state = state.copyWith(loading: true);
+    if (state.todayAttendance?.isCheckedIn == true) {
+      state = state.copyWith(message: 'Already checked in today.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
     try {
-      final inventory = await _api.fetchInventory(
-        session.locationId,
-        session.token,
+      final pos = await _getPosition();
+      final lat = pos.latitude;
+      final lng = pos.longitude;
+
+      // Validate against geofence if location has coords
+      final myLocation = _findLocation(session.locationId);
+      if (myLocation?.geoLat != null && myLocation?.geoLng != null) {
+        final dist = _haversineMeters(
+          lat,
+          lng,
+          myLocation!.geoLat!,
+          myLocation.geoLng!,
+        );
+        final radius = myLocation.geofenceRadius ?? 200;
+        if (dist > radius) {
+          state = state.copyWith(
+            loading: false,
+            message:
+                'You are ${dist.toStringAsFixed(0)} m away from your location. '
+                'Must be within $radius m to check in.',
+          );
+          return;
+        }
+      }
+
+      if (!state.isOnline) {
+        // Queue offline check-in
+        final action = SyncAction(
+          id: _uuid.v4(),
+          type: SyncActionType.checkIn,
+          entityId: '',
+          payload: {
+            'lat': lat,
+            'lng': lng,
+            if (notes != null) 'notes': notes,
+          },
+          createdAt: DateTime.now(),
+          status: SyncStatus.pendingUpload,
+          retryCount: 0,
+        );
+        await _store.upsertQueueItem(action);
+        state = state.copyWith(
+          loading: false,
+          syncQueue: [...state.syncQueue, action],
+          message: 'Check-in saved offline. Will sync when online.',
+        );
+        return;
+      }
+
+      final record = await _api.staffCheckIn(
+        token: session.token,
+        lat: lat,
+        lng: lng,
+        notes: notes,
       );
-      final orders = await _api.fetchOrders(session);
-      final locations = state.locations.isEmpty
-          ? await _api.fetchLocations(session.token)
-          : state.locations;
-
-      await _store.replaceInventory(inventory);
-      await _store.replaceOrders(orders);
-      final inventoryCatalog = _mergeInventoryCatalog(inventory: inventory);
-      await _store.writeInventoryCatalog(inventoryCatalog);
-
+      await _store.writeTodayAttendance(record);
       state = state.copyWith(
         loading: false,
-        inventory: inventory,
-        orders: orders,
-        locations: locations,
-        inventoryCatalog: inventoryCatalog,
+        todayAttendance: record,
+        message: 'Checked in successfully!',
       );
     } catch (error) {
       state = state.copyWith(
@@ -418,6 +509,242 @@ class AppController extends StateNotifier<AppState> {
       );
     }
   }
+
+  /// GPS check-out for the currently logged-in staff member.
+  Future<void> staffCheckOut({String? notes}) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.staff) {
+      state = state.copyWith(message: 'Only staff can check out.');
+      return;
+    }
+
+    final today = state.todayAttendance;
+    if (today == null || !today.isCheckedIn) {
+      state = state.copyWith(message: 'You have not checked in today.');
+      return;
+    }
+    if (today.isCheckedOut) {
+      state = state.copyWith(message: 'Already checked out today.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      final pos = await _getPosition();
+      final lat = pos.latitude;
+      final lng = pos.longitude;
+
+      if (!state.isOnline) {
+        final action = SyncAction(
+          id: _uuid.v4(),
+          type: SyncActionType.checkOut,
+          entityId: today.id,
+          payload: {
+            'lat': lat,
+            'lng': lng,
+            if (notes != null) 'notes': notes,
+          },
+          createdAt: DateTime.now(),
+          status: SyncStatus.pendingUpload,
+          retryCount: 0,
+        );
+        await _store.upsertQueueItem(action);
+        state = state.copyWith(
+          loading: false,
+          syncQueue: [...state.syncQueue, action],
+          message: 'Check-out saved offline. Will sync when online.',
+        );
+        return;
+      }
+
+      final record = await _api.staffCheckOut(
+        token: session.token,
+        attendanceId: today.id,
+        lat: lat,
+        lng: lng,
+        notes: notes,
+      );
+      await _store.writeTodayAttendance(record);
+      state = state.copyWith(
+        loading: false,
+        todayAttendance: record,
+        message: 'Checked out successfully!',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  AppLocation? _findLocation(String locationId) {
+    try {
+      return state.locations.firstWhere(
+        (l) => l.id == locationId || l.code == locationId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Tasks ─────────────────────────────────────────────────────────────────
+
+  Future<void> createTask({
+    required String title,
+    required String description,
+    required String assignedToId,
+    required TaskPriority priority,
+    required DateTime dueDate,
+    String? relatedOrderId,
+  }) async {
+    final session = state.session;
+    if (session == null) return;
+    if (session.role != UserRole.warehouseManager &&
+        session.role != UserRole.storeManager) {
+      state = state.copyWith(message: 'Only managers can create tasks.');
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Task creation requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.createTask(
+        token: session.token,
+        title: title,
+        description: description,
+        locationId: session.locationId,
+        assignedToId: assignedToId,
+        priority: priority,
+        dueDate: dueDate,
+        relatedOrderId: relatedOrderId,
+      );
+      // Reload staff to update open_task_count
+      final members = await _api.fetchStaffMembers(
+        token: session.token,
+        locationId: session.locationId,
+      );
+      await _store.replaceStaff(members);
+      state = state.copyWith(
+        loading: false,
+        staffMembers: members,
+        message: 'Task created successfully.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> startTask(String taskId) async {
+    await _updateTaskStatus(taskId, TaskStatus.inProgress);
+  }
+
+  Future<void> completeTask(String taskId, {String? completionNote}) async {
+    await _updateTaskStatus(
+      taskId,
+      TaskStatus.completed,
+      completionNote: completionNote,
+    );
+  }
+
+  Future<void> _updateTaskStatus(
+    String taskId,
+    TaskStatus status, {
+    String? completionNote,
+  }) async {
+    final session = state.session;
+    if (session == null) return;
+
+    if (state.isOnline) {
+      state = state.copyWith(loading: true, clearMessage: true);
+      try {
+        final updated = await _api.updateTaskStatus(
+          token: session.token,
+          taskId: taskId,
+          status: status,
+          completionNote: completionNote,
+        );
+        final tasks = state.myTasks.map((t) => t.id == taskId ? updated : t).toList();
+        await _store.replaceTasks(tasks);
+        state = state.copyWith(
+          loading: false,
+          myTasks: tasks,
+          message: 'Task updated.',
+        );
+        return;
+      } catch (_) {
+        state = state.copyWith(loading: false);
+      }
+    }
+
+    // Offline — update locally and queue
+    final updatedTasks = state.myTasks.map((t) {
+      if (t.id != taskId) return t;
+      return t.copyWith(
+        status: status,
+        completedAt:
+            status == TaskStatus.completed ? DateTime.now() : t.completedAt,
+        completionNote: completionNote ?? t.completionNote,
+        syncStatus: SyncStatus.pendingUpload,
+      );
+    }).toList();
+    await _store.replaceTasks(updatedTasks);
+
+    final actionType = status == TaskStatus.inProgress
+        ? SyncActionType.startTask
+        : SyncActionType.completeTask;
+    final action = SyncAction(
+      id: _uuid.v4(),
+      type: actionType,
+      entityId: taskId,
+      payload: {
+        if (completionNote != null) 'completionNote': completionNote,
+      },
+      createdAt: DateTime.now(),
+      status: SyncStatus.pendingUpload,
+      retryCount: 0,
+    );
+    await _store.upsertQueueItem(action);
+
+    state = state.copyWith(
+      myTasks: updatedTasks,
+      syncQueue: [...state.syncQueue, action],
+      message: 'Task updated offline. Will sync when online.',
+    );
+  }
+
+  /// Manager loads detailed attendance for a specific staff member.
+  Future<void> loadStaffAttendance({
+    required String staffId,
+    int? month,
+    int? year,
+  }) async {
+    final session = state.session;
+    if (session == null || !state.isOnline) return;
+
+    try {
+      final records = await _api.fetchStaffAttendance(
+        token: session.token,
+        staffId: staffId,
+        month: month,
+        year: year,
+      );
+      state = state.copyWith(staffAttendance: records);
+    } catch (error) {
+      state = state.copyWith(
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  // ── Image ─────────────────────────────────────────────────────────────────
 
   /// Update the local image path on an inventory item (camera/gallery pick).
   void setProductImage(String productId, String localPath) {
@@ -441,108 +768,39 @@ class AppController extends StateNotifier<AppState> {
     );
   }
 
+  // ── Orders ────────────────────────────────────────────────────────────────
+
   Future<void> createOrderRequest({
     required String productId,
     required String title,
     required String sku,
     required int quantity,
-    String? warehouseRef,
-  }) async {
-    await createCartOrderRequest(
-      warehouseRef: warehouseRef,
-      items: [
-        OrderItem(
-          productId: productId,
-          title: title,
-          sku: sku,
-          quantity: quantity,
-        ),
-      ],
-    );
-  }
-
-  Future<bool> createCartOrderRequest({
-    required List<OrderItem> items,
-    String? warehouseRef,
   }) async {
     final session = state.session;
-    if (session == null) return false;
+    if (session == null) return;
     if (session.role != UserRole.storeManager) {
       state = state.copyWith(
         message: 'Only store manager can create order requests.',
       );
-      return false;
-    }
-
-    final normalizedItems = items
-        .where((item) => item.quantity > 0)
-        .map(
-          (item) => OrderItem(
-            productId: item.productId,
-            title: item.title,
-            sku: item.sku,
-            quantity: item.quantity,
-          ),
-        )
-        .toList(growable: false);
-
-    if (normalizedItems.isEmpty) {
-      state = state.copyWith(message: 'Add at least one item to place order.');
-      return false;
+      return;
     }
 
     final now = DateTime.now();
-    final targetWarehouseRef =
-        (warehouseRef != null && warehouseRef.trim().isNotEmpty)
-        ? warehouseRef.trim()
-        : _defaultWarehouseRef();
-    final orderId = _buildReadableOrderId(
-      warehouseRef: targetWarehouseRef,
-      storeRef: session.locationId,
-      now: now,
-    );
-    final localOrder = StoreOrder(
-      id: _uuid.v4(),
-      orderId: orderId,
-      storeId: session.locationId,
-      storeName: _locationNameFor(session.locationId),
-      warehouseId: targetWarehouseRef,
-      warehouseName: _locationNameFor(targetWarehouseRef),
-      status: OrderStatus.pendingWarehouseApproval,
-      items: normalizedItems,
-      reservedAmount: normalizedItems.fold<int>(
-        0,
-        (sum, item) => sum + item.quantity,
-      ),
-      createdAt: now,
-      updatedAt: now,
-      syncStatus: SyncStatus.synced,
-    );
-
-    final payloadItems = normalizedItems
-        .map((item) => {'product_id': item.productId, 'qty': item.quantity})
-        .toList(growable: false);
+    final warehouseRef = _defaultWarehouseRef();
 
     if (state.isOnline) {
       try {
         await _api.createOrderOnline(
           session: session,
-          warehouseId: targetWarehouseRef,
-          items: payloadItems,
+          warehouseId: warehouseRef,
+          productId: productId,
+          quantity: quantity,
           idempotencyKey: _uuid.v4(),
         );
-        final updatedOrders = [localOrder, ...state.orders];
-        await _store.upsertOrder(localOrder);
-        state = state.copyWith(
-          orders: updatedOrders,
-          message: normalizedItems.length > 1
-              ? 'Cart order submitted.'
-              : 'Order submitted.',
-        );
-        unawaited(refreshForCurrentRole());
-        return true;
-      } catch (error) {
-        AppLogger.error('Online order submission failed; queuing offline', error: error);
+        state = state.copyWith(message: 'Order submitted.');
+        await refreshData();
+        return;
+      } catch (_) {
         state = state.copyWith(
           message: 'Online submit failed. Saved offline and queued for sync.',
         );
@@ -551,17 +809,20 @@ class AppController extends StateNotifier<AppState> {
 
     final order = StoreOrder(
       id: _uuid.v4(),
-      orderId: orderId,
+      orderId:
+          'ORD-ST01-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}-${now.millisecond.toString().padLeft(4, '0')}',
       storeId: session.locationId,
-      storeName: _locationNameFor(session.locationId),
-      warehouseId: targetWarehouseRef,
-      warehouseName: _locationNameFor(targetWarehouseRef),
+      warehouseId: warehouseRef,
       status: OrderStatus.draft,
-      items: normalizedItems,
-      reservedAmount: normalizedItems.fold<int>(
-        0,
-        (sum, item) => sum + item.quantity,
-      ),
+      items: [
+        OrderItem(
+          productId: productId,
+          title: title,
+          sku: sku,
+          quantity: quantity,
+        ),
+      ],
+      reservedAmount: quantity,
       createdAt: now,
       updatedAt: now,
       syncStatus: SyncStatus.pendingUpload,
@@ -577,8 +838,10 @@ class AppController extends StateNotifier<AppState> {
       entityId: order.id,
       payload: {
         'storeId': session.locationId,
-        'warehouseId': targetWarehouseRef,
-        'items': payloadItems,
+        'warehouseId': warehouseRef,
+        'items': [
+          {'product_id': productId, 'qty': quantity},
+        ],
       },
       createdAt: now,
       status: SyncStatus.pendingUpload,
@@ -592,27 +855,11 @@ class AppController extends StateNotifier<AppState> {
       syncQueue: updatedQueue,
       message: 'Order saved offline and queued for sync.',
     );
-    return true;
   }
 
   Future<void> transitionOrder(StoreOrder order, OrderStatus target) async {
     final session = state.session;
     if (session == null) return;
-
-    final requiresOnlineApproval =
-        target == OrderStatus.warehouseApproved ||
-        target == OrderStatus.warehouseRejected;
-
-    final updated = order.copyWith(
-      status: target,
-      updatedAt: DateTime.now(),
-      syncStatus: SyncStatus.synced,
-    );
-
-    if (!state.isOnline && requiresOnlineApproval) {
-      state = state.copyWith(message: 'Warehouse approval needs connectivity.');
-      return;
-    }
 
     if (state.isOnline) {
       try {
@@ -621,24 +868,32 @@ class AppController extends StateNotifier<AppState> {
           orderRef: order.id,
           target: target,
         );
-
-        final updatedOrders = state.orders
-            .map((item) => item.id == order.id ? updated : item)
-            .toList(growable: false);
-        await _store.upsertOrder(updated);
-        state = state.copyWith(
-          orders: updatedOrders,
-          message: 'Order updated to ${target.name}.',
-        );
-        unawaited(refreshForCurrentRole());
+        state = state.copyWith(message: 'Order updated to ${target.name}.');
+        await refreshData();
         return;
-      } catch (error) {
+      } catch (_) {
+        if (session.role == UserRole.superadmin) {
+          state = state.copyWith(message: 'Failed to approve order online.');
+          return;
+        }
         state = state.copyWith(
-          message: error.toString().replaceFirst('Exception: ', ''),
+          message: 'Online update failed. Saved offline and queued.',
         );
-        return;
       }
     }
+
+    if (session.role == UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Superadmin order approval requires internet.',
+      );
+      return;
+    }
+
+    final updated = order.copyWith(
+      status: target,
+      updatedAt: DateTime.now(),
+      syncStatus: SyncStatus.pendingUpload,
+    );
 
     final updatedOrders = state.orders
         .map((o) => o.id == order.id ? updated : o)
@@ -673,6 +928,8 @@ class AppController extends StateNotifier<AppState> {
     );
   }
 
+  // ── Sync ──────────────────────────────────────────────────────────────────
+
   Future<void> syncPendingActions() async {
     if (!state.isOnline || state.syncQueue.isEmpty || state.session == null) {
       return;
@@ -690,10 +947,6 @@ class AppController extends StateNotifier<AppState> {
         await _api.syncAction(action, state.session!);
         await _store.removeQueueItem(action.id);
       } catch (error) {
-        AppLogger.error('Sync action failed', error: error, context: {
-          'actionId': action.id,
-          'actionType': action.type.name,
-        });
         final failed = action.copyWith(
           status: SyncStatus.failed,
           retryCount: action.retryCount + 1,
@@ -710,11 +963,9 @@ class AppController extends StateNotifier<AppState> {
           ? 'Synced successfully.'
           : '${nextQueue.length} queued action(s) need manual review.',
     );
-
-    if (nextQueue.isEmpty) {
-      unawaited(refreshForCurrentRole());
-    }
   }
+
+  // ── Employees (superadmin) ────────────────────────────────────────────────
 
   Future<void> createEmployee({
     required String name,
@@ -853,6 +1104,8 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
+  // ── Inventory ─────────────────────────────────────────────────────────────
+
   Future<void> createInventoryItem({
     required String sku,
     required String title,
@@ -895,11 +1148,7 @@ class AppController extends StateNotifier<AppState> {
         imageBytes: imageBytes,
         imageFilename: imageFilename,
       );
-      if (session.role == UserRole.superadmin) {
-        await refreshData();
-      } else {
-        await refreshInventoryOnly();
-      }
+      await refreshData();
       state = state.copyWith(message: 'Inventory item created.');
     } catch (error) {
       state = state.copyWith(
@@ -956,11 +1205,7 @@ class AppController extends StateNotifier<AppState> {
         imageBytes: imageBytes,
         imageFilename: imageFilename,
       );
-      if (session.role == UserRole.superadmin) {
-        await refreshData();
-      } else {
-        await refreshInventoryOnly();
-      }
+      await refreshData();
       state = state.copyWith(message: 'Inventory item updated.');
     } catch (error) {
       state = state.copyWith(
@@ -995,11 +1240,7 @@ class AppController extends StateNotifier<AppState> {
         productRef: productRef,
         locationId: targetLocation,
       );
-      if (session.role == UserRole.superadmin) {
-        await refreshData();
-      } else {
-        await refreshInventoryOnly();
-      }
+      await refreshData();
       state = state.copyWith(message: 'Inventory item deleted.');
     } catch (error) {
       state = state.copyWith(
@@ -1008,17 +1249,852 @@ class AppController extends StateNotifier<AppState> {
     }
   }
 
-  Future<void> addInventoryCatalogValue(
-    CatalogEntryType type,
-    String value,
-  ) async {
-    final nextCatalog = state.inventoryCatalog.addValue(type, value);
-    await _store.writeInventoryCatalog(nextCatalog);
+  // ── Order – reject / dispatch with notes ─────────────────────────────────
+
+  Future<void> rejectOrder(StoreOrder order, String reason) async {
+    final session = state.session;
+    if (session == null) return;
+    if (session.role != UserRole.warehouseManager &&
+        session.role != UserRole.superadmin) {
+      state = state.copyWith(message: 'Only managers can reject orders.');
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Order rejection requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.rejectOrder(
+        token: session.token,
+        orderRef: order.id,
+        reason: reason,
+      );
+      await refreshData();
+      state = state.copyWith(message: 'Order rejected.');
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> dispatchOrderWithNotes(
+    StoreOrder order, {
+    String? notes,
+  }) async {
+    final session = state.session;
+    if (session == null) return;
+    if (session.role != UserRole.warehouseManager &&
+        session.role != UserRole.superadmin) {
+      state = state.copyWith(message: 'Only managers can dispatch orders.');
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Dispatch requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.dispatchOrderWithNotes(
+        token: session.token,
+        orderRef: order.id,
+        notes: notes,
+      );
+      await refreshData();
+      state = state.copyWith(message: 'Order dispatched.');
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  // ── Cart (store manager multi-item ordering) ──────────────────────────────
+
+  void addToCart(CartItem item) {
+    final existing = state.cart.indexWhere((c) => c.productId == item.productId);
+    if (existing >= 0) {
+      final updated = state.cart.toList();
+      updated[existing] = CartItem(
+        productId: item.productId,
+        title: item.title,
+        sku: item.sku,
+        brand: item.brand,
+        quantity: updated[existing].quantity + item.quantity,
+        availableStock: item.availableStock,
+        imageUrl: item.imageUrl,
+      );
+      state = state.copyWith(cart: updated);
+    } else {
+      state = state.copyWith(cart: [...state.cart, item]);
+    }
+  }
+
+  void removeFromCart(String productId) {
     state = state.copyWith(
-      inventoryCatalog: nextCatalog,
-      message: '${type.label} added to quick options.',
+      cart: state.cart.where((c) => c.productId != productId).toList(),
     );
   }
+
+  void updateCartQty(String productId, int quantity) {
+    if (quantity <= 0) {
+      removeFromCart(productId);
+      return;
+    }
+    state = state.copyWith(
+      cart: state.cart.map((c) {
+        if (c.productId != productId) return c;
+        return CartItem(
+          productId: c.productId,
+          title: c.title,
+          sku: c.sku,
+          brand: c.brand,
+          quantity: quantity,
+          availableStock: c.availableStock,
+          imageUrl: c.imageUrl,
+        );
+      }).toList(),
+    );
+  }
+
+  void clearCart() {
+    state = state.copyWith(cart: const <CartItem>[]);
+  }
+
+  Future<void> submitCart() async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.storeManager) {
+      state = state.copyWith(
+        message: 'Only store manager can submit orders.',
+      );
+      return;
+    }
+
+    if (state.cart.isEmpty) {
+      state = state.copyWith(message: 'Cart is empty.');
+      return;
+    }
+
+    final warehouseRef = _defaultWarehouseRef();
+
+    if (state.isOnline) {
+      state = state.copyWith(loading: true, clearMessage: true);
+      try {
+        final items = state.cart
+            .map((c) => {'product_id': c.productId, 'qty': c.quantity})
+            .toList();
+        await _api.createMultiItemOrderOnline(
+          session: session,
+          warehouseId: warehouseRef,
+          items: items,
+          idempotencyKey: _uuid.v4(),
+        );
+        state = state.copyWith(cart: const <CartItem>[]);
+        await refreshData();
+        state = state.copyWith(message: 'Order submitted successfully.');
+        return;
+      } catch (_) {
+        state = state.copyWith(
+          message: 'Online submit failed. Saving offline.',
+        );
+      }
+    }
+
+    // Offline fallback — one order per cart item
+    final now = DateTime.now();
+    final newOrders = <StoreOrder>[];
+    final newActions = <SyncAction>[];
+
+    for (final cartItem in state.cart) {
+      final order = StoreOrder(
+        id: _uuid.v4(),
+        orderId:
+            'ORD-${session.locationId}-${now.millisecondsSinceEpoch}',
+        storeId: session.locationId,
+        warehouseId: warehouseRef,
+        status: OrderStatus.draft,
+        items: [
+          OrderItem(
+            productId: cartItem.productId,
+            title: cartItem.title,
+            sku: cartItem.sku,
+            quantity: cartItem.quantity,
+          ),
+        ],
+        reservedAmount: cartItem.quantity,
+        createdAt: now,
+        updatedAt: now,
+        syncStatus: SyncStatus.pendingUpload,
+      );
+      await _store.upsertOrder(order);
+      newOrders.add(order);
+
+      final action = SyncAction(
+        id: _uuid.v4(),
+        type: SyncActionType.createOrder,
+        entityId: order.id,
+        payload: {
+          'storeId': session.locationId,
+          'warehouseId': warehouseRef,
+          'items': [
+            {'product_id': cartItem.productId, 'qty': cartItem.quantity},
+          ],
+        },
+        createdAt: now,
+        status: SyncStatus.pendingUpload,
+        retryCount: 0,
+      );
+      await _store.upsertQueueItem(action);
+      newActions.add(action);
+    }
+
+    state = state.copyWith(
+      orders: [...newOrders, ...state.orders],
+      syncQueue: [...state.syncQueue, ...newActions],
+      cart: const <CartItem>[],
+      message: 'Orders saved offline and queued for sync.',
+    );
+  }
+
+  // ── Bulk Orders ───────────────────────────────────────────────────────────
+
+  Future<void> fetchAndStoreBulkOrders() async {
+    final session = state.session;
+    if (session == null || !state.isOnline) return;
+
+    try {
+      final bulkOrders = await _api.fetchBulkOrders(session.token);
+      state = state.copyWith(bulkOrders: bulkOrders);
+    } catch (error) {
+      state = state.copyWith(
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> transitionBulkOrder(String orderId, String target) async {
+    final session = state.session;
+    if (session == null) return;
+    if (session.role != UserRole.warehouseManager &&
+        session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only managers can update bulk orders.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Bulk order update requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.transitionBulkOrder(
+        token: session.token,
+        orderId: orderId,
+        target: BulkOrderStatus.values.firstWhere(
+          (s) => s.name == target,
+          orElse: () => BulkOrderStatus.confirmed,
+        ),
+      );
+      final bulkOrders = await _api.fetchBulkOrders(session.token);
+      state = state.copyWith(
+        loading: false,
+        bulkOrders: bulkOrders,
+        message: 'Bulk order updated to $target.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> createBulkOrder({
+    required String clientId,
+    required String warehouseId,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can create bulk orders.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Bulk order creation requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.createBulkOrder(
+        token: session.token,
+        clientId: clientId,
+        warehouseId: warehouseId,
+        items: items,
+      );
+      final bulkOrders = await _api.fetchBulkOrders(session.token);
+      state = state.copyWith(
+        loading: false,
+        bulkOrders: bulkOrders,
+        message: 'Bulk order created successfully.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  // ── Stock adjustments & transfers ─────────────────────────────────────────
+
+  Future<void> adjustStock({
+    required String productRef,
+    required int newQuantity,
+    required String reason,
+    String? locationId,
+    String? notes,
+  }) async {
+    final session = state.session;
+    if (session == null) return;
+    if (session.role != UserRole.warehouseManager &&
+        session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only warehouse manager/superadmin can adjust stock.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Stock adjustment requires internet.');
+      return;
+    }
+
+    final targetLocation = locationId ?? session.locationId;
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.adjustStock(
+        token: session.token,
+        productRef: productRef,
+        locationId: targetLocation,
+        newQuantity: newQuantity,
+        reason: reason,
+        notes: notes,
+      );
+      await refreshData();
+      state = state.copyWith(message: 'Stock adjusted successfully.');
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> transferStock({
+    required String fromLocationId,
+    required String toLocationId,
+    required String productId,
+    required int quantity,
+    String? note,
+  }) async {
+    final session = state.session;
+    if (session == null) return;
+    if (session.role != UserRole.warehouseManager &&
+        session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only warehouse manager/superadmin can transfer stock.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Stock transfer requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.transferStock(
+        token: session.token,
+        fromLocationId: fromLocationId,
+        toLocationId: toLocationId,
+        productId: productId,
+        quantity: quantity,
+        note: note,
+      );
+      await refreshData();
+      state = state.copyWith(message: 'Stock transferred successfully.');
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> fetchStockMovements({
+    String? locationId,
+    String? productId,
+  }) async {
+    final session = state.session;
+    if (session == null || !state.isOnline) return;
+
+    try {
+      final movements = await _api.fetchStockMovements(
+        token: session.token,
+        locationId: locationId ?? session.locationId,
+        productId: productId,
+      );
+      state = state.copyWith(stockMovements: movements);
+    } catch (error) {
+      state = state.copyWith(
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  // ── Products CRUD (superadmin) ────────────────────────────────────────────
+
+  Future<void> createProduct({
+    required String title,
+    required String shortName,
+    required String sku,
+    required String brand,
+    String? category,
+    String? model,
+    String? color,
+    String? status,
+    String? customStyle,
+  }) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can create products.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Product creation requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.createProduct(
+        token: session.token,
+        title: title,
+        shortName: shortName,
+        sku: sku,
+        brand: brand,
+        category: category ?? '',
+        model: model ?? '',
+        color: color ?? '',
+        status: status ?? 'present',
+        customStyle: customStyle ?? 'default',
+      );
+      await refreshData();
+      state = state.copyWith(message: 'Product created successfully.');
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> updateProduct({
+    required String productId,
+    String? title,
+    String? shortName,
+    String? sku,
+    String? brand,
+    String? category,
+    String? model,
+    String? color,
+    String? status,
+    String? customStyle,
+  }) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can update products.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Product update requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.updateProduct(
+        token: session.token,
+        productId: productId,
+        title: title,
+        shortName: shortName,
+        brand: brand,
+        category: category,
+        model: model,
+        color: color,
+        status: status,
+        customStyle: customStyle,
+      );
+      await refreshData();
+      state = state.copyWith(message: 'Product updated successfully.');
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> deleteProduct(String productId) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can delete products.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Product deletion requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.deleteProduct(token: session.token, productId: productId);
+      await refreshData();
+      state = state.copyWith(message: 'Product deleted successfully.');
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  /// Upload (or replace) the product image. Returns the new image URL on success.
+  Future<String?> uploadProductImage({
+    required String productId,
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    final session = state.session;
+    if (session == null) return null;
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Image upload requires internet.');
+      return null;
+    }
+
+    try {
+      final url = await _api.uploadProductImage(
+        token: session.token,
+        productId: productId,
+        bytes: bytes,
+        filename: filename,
+      );
+      // Refresh products list so the new image URL appears
+      await refreshData();
+      return url;
+    } catch (error) {
+      state = state.copyWith(
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+      return null;
+    }
+  }
+
+  // ── Locations CRUD (superadmin) ───────────────────────────────────────────
+
+  Future<void> createLocation({
+    required String code,
+    required String name,
+    required String type,
+    String? address,
+  }) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can create locations.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Location creation requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.createLocation(
+        token: session.token,
+        code: code,
+        name: name,
+        type: type,
+        address: address ?? '',
+      );
+      final locations = await _api.fetchLocations(session.token);
+      state = state.copyWith(
+        loading: false,
+        locations: locations,
+        message: 'Location created successfully.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> updateLocation({
+    required String locationId,
+    String? name,
+    String? address,
+    bool? active,
+  }) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can update locations.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Location update requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.updateLocation(
+        token: session.token,
+        locationId: locationId,
+        name: name,
+        address: address,
+        status: active == null ? null : (active ? 'active' : 'inactive'),
+      );
+      final locations = await _api.fetchLocations(session.token);
+      state = state.copyWith(
+        loading: false,
+        locations: locations,
+        message: 'Location updated successfully.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  // ── Clients (superadmin) ──────────────────────────────────────────────────
+
+  Future<void> fetchAndStoreClients() async {
+    final session = state.session;
+    if (session == null || !state.isOnline) return;
+
+    try {
+      final clients = await _api.fetchClients(session.token);
+      state = state.copyWith(clients: clients);
+    } catch (error) {
+      state = state.copyWith(
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> createClient({
+    required String name,
+    required String code,
+    required String contactName,
+    required String contactEmail,
+    String? phone,
+    String? address,
+    String? city,
+    String? gstNumber,
+  }) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can create clients.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Client creation requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.createClient(
+        token: session.token,
+        name: name,
+        code: code,
+        contactName: contactName,
+        contactEmail: contactEmail,
+        phone: phone ?? '',
+        address: address ?? '',
+        city: city ?? '',
+        gstNumber: gstNumber ?? '',
+      );
+      final clients = await _api.fetchClients(session.token);
+      state = state.copyWith(
+        loading: false,
+        clients: clients,
+        message: 'Client created successfully.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> updateClientStatus(String clientId, String status) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can update client status.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Client update requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.updateClientStatus(
+        token: session.token,
+        clientId: clientId,
+        status: status,
+      );
+      final clients = await _api.fetchClients(session.token);
+      state = state.copyWith(
+        loading: false,
+        clients: clients,
+        message: 'Client status updated.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  // ── Employee management (superadmin) ──────────────────────────────────────
+
+  Future<void> editEmployee({
+    required String userId,
+    String? name,
+    String? email,
+    UserRole? role,
+    String? locationId,
+  }) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can edit employees.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Employee edit requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.updateEmployee(
+        token: session.token,
+        userId: userId,
+        name: name,
+        email: email,
+        role: role?.name,
+        locationId: locationId,
+      );
+      final users = await _api.fetchUsers(session.token);
+      state = state.copyWith(
+        loading: false,
+        employees: users,
+        message: 'Employee updated successfully.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> resetEmployeePassword({
+    required String userId,
+    required String newPassword,
+  }) async {
+    final session = state.session;
+    if (session == null || session.role != UserRole.superadmin) {
+      state = state.copyWith(
+        message: 'Only superadmin can reset passwords.',
+      );
+      return;
+    }
+
+    if (!state.isOnline) {
+      state = state.copyWith(message: 'Password reset requires internet.');
+      return;
+    }
+
+    state = state.copyWith(loading: true, clearMessage: true);
+    try {
+      await _api.resetEmployeePassword(
+        token: session.token,
+        userId: userId,
+        newPassword: newPassword,
+      );
+      state = state.copyWith(
+        loading: false,
+        message: 'Password reset successfully.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        loading: false,
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  // ── Misc ──────────────────────────────────────────────────────────────────
 
   void clearMessage() {
     state = state.copyWith(clearMessage: true);
@@ -1026,7 +2102,6 @@ class AppController extends StateNotifier<AppState> {
 
   @override
   void dispose() {
-    _liveRefreshTicker?.cancel();
     _connectivitySub?.cancel();
     super.dispose();
   }

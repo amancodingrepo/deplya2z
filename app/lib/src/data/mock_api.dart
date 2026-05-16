@@ -1,132 +1,225 @@
+import 'dart:developer' as dev;
+import 'dart:io' show Platform;
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
 
-import '../core/app_logger.dart';
 import '../core/models.dart';
 
+// Logs to both debugPrint (debug) and dart:developer log (release).
+// Release logs are visible via: adb logcat -s flutter
+void _apiLog(String message) {
+  dev.log(message, name: 'API');
+  if (kDebugMode) debugPrint('[API] $message');
+}
+
 class MockApi {
-  MockApi()
-    : _dio = Dio(
-        BaseOptions(
-          baseUrl: _resolveBaseUrl(),
-          connectTimeout: const Duration(seconds: 20),
-          sendTimeout: const Duration(seconds: 20),
-          receiveTimeout: const Duration(seconds: 30),
-          headers: const {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-        ),
-      ) {
-    AppLogger.info('API client configured', {'baseUrl': _dio.options.baseUrl});
-    _dio.interceptors.add(_NetworkLoggingInterceptor());
+  MockApi() : _dio = _buildDio() {
+    _dio.interceptors.add(
+      LogInterceptor(
+        requestHeader: false,
+        requestBody: true,
+        responseHeader: false,
+        responseBody: true,
+        error: true,
+        logPrint: (o) => _apiLog(o.toString()),
+      ),
+    );
+
+    // Retry once on connection-level failures (transient network hiccups).
+    // Does NOT retry on 4xx/5xx — those are deterministic server responses.
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onError: (DioException error, ErrorInterceptorHandler handler) async {
+          final isConnectionError =
+              error.type == DioExceptionType.connectionError ||
+              error.type == DioExceptionType.connectionTimeout ||
+              (error.type == DioExceptionType.unknown &&
+                  (error.error?.toString().contains('Connection failed') == true ||
+                   error.error?.toString().contains('SocketException') == true));
+
+          if (isConnectionError && !(error.requestOptions.extra['_retried'] == true)) {
+            _apiLog('Retrying ${error.requestOptions.path} after connection error…');
+            await Future<void>.delayed(const Duration(seconds: 2));
+            try {
+              final opts = error.requestOptions;
+              opts.extra['_retried'] = true;
+              final response = await _dio.fetch<dynamic>(opts);
+              return handler.resolve(response);
+            } catch (_) {
+              // fall through to original error
+            }
+          }
+          return handler.next(error);
+        },
+      ),
+    );
+  }
+
+  static Dio _buildDio() {
+    final baseUrl = _resolveBaseUrl();
+    _apiLog('Base URL: $baseUrl');
+    return Dio(
+      BaseOptions(
+        baseUrl: baseUrl,
+        // Physical devices on mobile networks need more headroom than emulators
+        connectTimeout: const Duration(seconds: 20),
+        receiveTimeout: const Duration(seconds: 30),
+        sendTimeout: const Duration(seconds: 20),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ),
+    );
   }
 
   final _uuid = const Uuid();
   final Dio _dio;
 
   static String _resolveBaseUrl() {
-    final configured = const String.fromEnvironment(
+    // Hardcoded production API URL
+    const productionUrl = 'http://69.62.84.211:8080/v1';
+
+    // Allow override via dart-define for local dev:
+    //   flutter run --dart-define=API_BASE_URL=http://192.168.1.x:8080/v1
+    const configured = String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://69.62.84.211:8080/v1',
+      defaultValue: productionUrl,
     );
 
-    if (kIsWeb) {
-      return configured;
-    }
+    if (kIsWeb) return configured;
 
     final uri = Uri.tryParse(configured);
-    if (uri == null) {
-      return configured;
-    }
+    if (uri == null) return configured;
 
-    _warnForUnsafeReleaseConfig(uri);
-
-    // Android emulator cannot reach host machine through localhost.
-    if (!kReleaseMode &&
-        defaultTargetPlatform == TargetPlatform.android &&
-        uri.host == 'localhost') {
+    // Android emulator: remap localhost/127.0.0.1 → 10.0.2.2 (host machine)
+    if (Platform.isAndroid &&
+        (uri.host == 'localhost' || uri.host == '127.0.0.1')) {
       return uri.replace(host: '10.0.2.2').toString();
     }
 
     return configured;
   }
 
-  static void _warnForUnsafeReleaseConfig(Uri uri) {
-    final host = uri.host.toLowerCase();
-    final isLocalHost =
-        host == 'localhost' || host == '127.0.0.1' || host == '10.0.2.2';
-
-    if (kReleaseMode && isLocalHost) {
-      AppLogger.error('Release build points to a local-only API host', context: {
-        'host': uri.host,
-        'fix': 'Build with --dart-define=API_BASE_URL=https://your-api/v1',
-      });
-    }
-
-    if (kReleaseMode && uri.scheme == 'http') {
-      AppLogger.warning('Release build uses cleartext HTTP API', {
-        'baseUrl': uri.toString(),
-        'fix': 'Use HTTPS for production when possible',
-      });
+  /// Pings the health endpoint and returns a diagnostic string.
+  /// Call this from your debug/settings screen to verify connectivity.
+  Future<String> checkServerReachability() async {
+    final baseUrl = _resolveBaseUrl();
+    final healthUrl = baseUrl.replaceFirst(RegExp(r'/v1$'), '/health');
+    _apiLog('Checking server reachability: $healthUrl');
+    try {
+      final resp = await Dio().get<dynamic>(
+        healthUrl,
+        options: Options(
+          sendTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+          connectTimeout: const Duration(seconds: 5),
+        ),
+      );
+      return 'OK (HTTP ${resp.statusCode}): $baseUrl';
+    } on DioException catch (e) {
+      return 'FAIL [${e.type.name}] ${e.message ?? e.error} → $baseUrl';
+    } catch (e) {
+      return 'FAIL: $e → $baseUrl';
     }
   }
 
   String _errorMessage(Object error) {
     if (error is DioException) {
-      AppLogger.error(
-        'API request failed',
-        error: error,
-        stackTrace: error.stackTrace,
-        context: {
-          'type': error.type.name,
-          'method': error.requestOptions.method,
-          'url': error.requestOptions.uri,
-          'status': error.response?.statusCode,
-        },
+      // Log the full technical error for adb logcat debugging in release builds
+      _apiLog(
+        'DioException type=${error.type.name} '
+        'status=${error.response?.statusCode} '
+        'message=${error.message} '
+        'error=${error.error}',
       );
+
+      // Always prefer the server's own error message / code first
       final data = error.response?.data;
-      if (data is Map && data['message'] is String) {
-        return data['message'] as String;
+      if (data is Map) {
+        if (data['message'] is String && (data['message'] as String).isNotEmpty) {
+          return data['message'] as String;
+        }
+        if (data['error'] is String && (data['error'] as String).isNotEmpty) {
+          return data['error'] as String;
+        }
+        if (data['code'] is String && (data['code'] as String).isNotEmpty) {
+          return data['code'] as String;
+        }
       }
-      if (data is Map && data['code'] is String) {
-        return data['code'] as String;
-      }
-      final uri = error.requestOptions.uri;
-      final baseHint =
-          'API: ${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}';
-      if (error.type == DioExceptionType.connectionError) {
-        return 'Cannot reach backend ($baseHint). Check phone internet, server firewall/port, Android INTERNET permission, and HTTP cleartext policy.';
-      }
-      if (error.type == DioExceptionType.connectionTimeout ||
-          error.type == DioExceptionType.sendTimeout ||
-          error.type == DioExceptionType.receiveTimeout) {
-        return 'Backend timed out ($baseHint). Check server health, mobile network quality, firewall, and API response time.';
-      }
-      if (error.type == DioExceptionType.badCertificate) {
-        return 'SSL certificate rejected ($baseHint). Check HTTPS certificate chain, expiry, hostname, and TLS support.';
-      }
-      if (error.response?.statusCode != null) {
-        return 'Request failed with HTTP ${error.response!.statusCode} at ${error.requestOptions.path}.';
-      }
-      if (error.message != null && error.message!.trim().isNotEmpty) {
-        return error.message!;
+
+      final serverUrl = _resolveBaseUrl();
+
+      // Classify network-level errors with human-readable messages
+      switch (error.type) {
+        case DioExceptionType.connectionTimeout:
+          return 'Connection timed out after 20s. Server ($serverUrl) may be down or unreachable.';
+        case DioExceptionType.sendTimeout:
+          return 'Request timed out while sending. Check your connection.';
+        case DioExceptionType.receiveTimeout:
+          return 'Server took too long to respond. Please try again.';
+        case DioExceptionType.connectionError:
+          final inner = error.error?.toString() ?? '';
+          if (inner.contains('refused') || inner.contains('ECONNREFUSED')) {
+            return 'Server refused the connection ($serverUrl). The service may be down.';
+          }
+          if (inner.contains('errno = 101') || inner.contains('ENETUNREACH')) {
+            return 'No network route to server. Check Wi-Fi/mobile data.';
+          }
+          if (inner.contains('errno = 111') || inner.contains('Connection refused')) {
+            return 'Connection refused by server ($serverUrl). Ensure the backend is running.';
+          }
+          return 'Cannot reach server ($serverUrl). Check internet and that port 8080 is open.';
+        case DioExceptionType.badResponse:
+          final status = error.response?.statusCode ?? 0;
+          if (status == 401) return 'Incorrect email or password.';
+          if (status == 403) return 'Access denied for your account.';
+          if (status == 404) return 'API endpoint not found. Please update the app.';
+          if (status == 429) return 'Too many attempts. Please wait a moment.';
+          if (status >= 500) return 'Server error ($status). Please try again later.';
+          final msg = error.message;
+          return (msg != null && msg.isNotEmpty) ? msg : 'Request failed (HTTP $status).';
+        case DioExceptionType.cancel:
+          return 'Request was cancelled.';
+        case DioExceptionType.unknown:
+          final innerErr = error.error?.toString() ?? '';
+          final errMsg = error.message ?? '';
+          // "The connection errored: Connection failed" — Dart SocketException wrapper
+          if (errMsg.contains('connection errored') ||
+              errMsg.contains('Connection failed') ||
+              innerErr.contains('Connection failed')) {
+            return 'Cannot connect to $serverUrl. '
+                'Most likely cause: server port 8080 is blocked by the VPS firewall, '
+                'or the backend process is not running. '
+                'Check firewall rules and run: curl $serverUrl/health';
+          }
+          if (innerErr.contains('SocketException') ||
+              innerErr.contains('Connection refused') ||
+              innerErr.contains('ECONNREFUSED')) {
+            return 'Cannot connect to server ($serverUrl). Ensure internet is available.';
+          }
+          if (innerErr.contains('HandshakeException') ||
+              innerErr.contains('CERTIFICATE') ||
+              innerErr.toLowerCase().contains('ssl') ||
+              innerErr.toLowerCase().contains('tls')) {
+            return 'SSL/TLS error connecting to server. The certificate may be invalid.';
+          }
+          final msg = error.message;
+          return (msg != null && msg.trim().isNotEmpty)
+              ? msg
+              : innerErr.isNotEmpty
+                  ? innerErr
+                  : error.toString();
+        // ignore: no_default_cases
+        default:
+          final msg = error.message;
+          return (msg != null && msg.trim().isNotEmpty) ? msg : error.toString();
       }
     }
     return error.toString();
-  }
-
-  Future<bool> healthCheck() async {
-    try {
-      final response = await _dio.get<dynamic>('/health');
-      return (response.statusCode ?? 500) >= 200 &&
-          (response.statusCode ?? 500) < 300;
-    } catch (error) {
-      AppLogger.warning('API health check failed', {'message': _errorMessage(error)});
-      return false;
-    }
   }
 
   Options _authOptions(String token, {String? idempotencyKey}) {
@@ -138,44 +231,12 @@ class MockApi {
     );
   }
 
-  Map<String, dynamic> _asMap(dynamic value) {
-    if (value is Map<String, dynamic>) {
-      return value;
-    }
-    if (value is Map) {
-      return Map<String, dynamic>.from(value);
-    }
-    return <String, dynamic>{};
-  }
-
-  List<dynamic> _asListPayload(dynamic value) {
-    if (value is List<dynamic>) {
-      return value;
-    }
-    if (value is Map) {
-      final map = Map<String, dynamic>.from(value);
-      final data = map['data'];
-      if (data is List<dynamic>) {
-        return data;
-      }
-    }
-    return const <dynamic>[];
-  }
-
-  Map<String, dynamic> _asMapPayload(dynamic value) {
-    final root = _asMap(value);
-    final data = root['data'];
-    if (data is Map) {
-      return Map<String, dynamic>.from(data);
-    }
-    return root;
-  }
-
   String _roleToApi(UserRole role) {
     return switch (role) {
       UserRole.superadmin => 'superadmin',
       UserRole.warehouseManager => 'warehouse_manager',
       UserRole.storeManager => 'store_manager',
+      UserRole.staff => 'staff',
     };
   }
 
@@ -184,9 +245,12 @@ class MockApi {
       'superadmin' => UserRole.superadmin,
       'warehouse_manager' => UserRole.warehouseManager,
       'store_manager' => UserRole.storeManager,
+      'staff' => UserRole.staff,
       _ => UserRole.storeManager,
     };
   }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
 
   Future<UserSession> login({
     required String email,
@@ -217,6 +281,7 @@ class MockApi {
               UserRole.superadmin => 'GLOBAL',
               UserRole.warehouseManager => 'WH01',
               UserRole.storeManager => 'ST01',
+              UserRole.staff => 'ST01',
             },
         token: payload['token'] as String? ?? _uuid.v4(),
         expiry: DateTime.now().add(const Duration(hours: 24)),
@@ -239,86 +304,61 @@ class MockApi {
     }
   }
 
+  // ── Products ──────────────────────────────────────────────────────────────
+
   /// Returns a rich list of products for listing with images.
   Future<List<Product>> fetchProducts(String token) async {
     try {
-      const limit = 200;
-      var page = 1;
-      var totalPages = 1;
-      final rows = <dynamic>[];
-
-      while (page <= totalPages) {
-        final response = await _dio.get<dynamic>(
-          '/products',
-          queryParameters: {'page': page, 'limit': limit},
-          options: _authOptions(token),
-        );
-
-        final payload = _asMap(response.data);
-        rows.addAll(_asListPayload(payload));
-
-        final meta = _asMap(payload['meta']);
-        totalPages = (meta['pages'] as num?)?.toInt() ?? 1;
-        page += 1;
-      }
-
-      return rows
-          .map((row) {
-            final json = Map<String, dynamic>.from(row as Map);
-            return Product.fromJson(json);
-          })
-          .toList(growable: false);
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/products',
+        queryParameters: {'limit': 200},
+        options: _authOptions(token),
+      );
+      final body = response.data ?? <String, dynamic>{};
+      final data = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      return data.map((row) {
+        final json = Map<String, dynamic>.from(row as Map);
+        return Product.fromJson(json);
+      }).toList();
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
   }
+
+  // ── Inventory ─────────────────────────────────────────────────────────────
 
   Future<List<InventoryItem>> fetchInventory(
     String locationId,
     String token,
   ) async {
     try {
-      const limit = 200;
-      var page = 1;
-      var totalPages = 1;
-      final rows = <dynamic>[];
+      final qp = <String, dynamic>{'limit': 200};
+      if (locationId.isNotEmpty) qp['location_id'] = locationId;
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/inventory',
+        queryParameters: qp,
+        options: _authOptions(token),
+      );
 
-      while (page <= totalPages) {
-        final response = await _dio.get<dynamic>(
-          '/inventory',
-          queryParameters: {
-            'location_id': locationId,
-            'page': page,
-            'limit': limit,
-          },
-          options: _authOptions(token),
-        );
-
-        final payload = _asMap(response.data);
-        rows.addAll(_asListPayload(payload));
-
-        final meta = _asMap(payload['meta']);
-        totalPages = (meta['pages'] as num?)?.toInt() ?? 1;
-        page += 1;
-      }
-
-      return rows
+      final body = response.data ?? <String, dynamic>{};
+      final data = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      return data
           .map((row) => Map<String, dynamic>.from(row as Map))
           .map(
             (json) => InventoryItem(
-              productId: (json['product_id'] ?? '').toString(),
-              sku: (json['sku'] ?? '').toString(),
-              title: (json['title'] ?? '').toString(),
-              locationId: (json['location_id'] ?? '').toString(),
-              availableStock: ((json['available_stock'] ?? 0) as num).toInt(),
-              reservedStock: ((json['reserved_stock'] ?? 0) as num).toInt(),
-              totalStock: ((json['total_stock'] ?? 0) as num).toInt(),
+              productId: (json['product_id'] ?? '') as String,
+              sku: (json['sku'] ?? '') as String,
+              title: (json['title'] ?? json['product_title'] ?? '') as String,
+              locationId: (json['location_id'] ?? '') as String,
+              availableStock: (json['available_stock'] as num? ?? 0).toInt(),
+              reservedStock: (json['reserved_stock'] as num? ?? 0).toInt(),
+              totalStock: (json['total_stock'] as num? ?? 0).toInt(),
               cachedAt: DateTime.now(),
-              brand: (json['brand'] ?? '').toString(),
-              category: (json['category'] ?? '').toString(),
-              model: (json['model'] ?? '').toString(),
-              color: (json['color'] ?? '').toString(),
-              imageUrl: (json['image_url'] ?? json['imageUrl']) as String?,
+              brand: (json['brand'] ?? '') as String,
+              category: (json['category'] ?? '') as String,
+              model: (json['model'] ?? '') as String,
+              color: (json['color'] ?? '') as String,
+              imageUrl: json['image_url'] as String?,
             ),
           )
           .toList();
@@ -327,17 +367,26 @@ class MockApi {
     }
   }
 
+  // ── Orders ────────────────────────────────────────────────────────────────
+
   Future<List<StoreOrder>> fetchOrders(UserSession session) async {
     try {
-      final response = await _dio.get<dynamic>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/orders',
+        queryParameters: {'limit': 100},
         options: _authOptions(session.token),
       );
-      final rows = _asListPayload(response.data);
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows.map((row) {
         final json = Map<String, dynamic>.from(row as Map);
-        final status = OrderStatusApi.fromApi(
-          (json['status'] ?? 'draft').toString(),
+        final status = OrderStatus.values.firstWhere(
+          (s) => s.name == (json['status'] as String).replaceAll('_', ''),
+          orElse: () {
+            final raw = json['status'] as String;
+            if (raw == 'store_received') return OrderStatus.storeReceived;
+            return OrderStatus.draft;
+          },
         );
 
         final items = (json['items'] as List<dynamic>? ?? const <dynamic>[])
@@ -355,21 +404,15 @@ class MockApi {
             .toList();
 
         return StoreOrder(
-          id: (json['id'] ?? '').toString(),
-          orderId: (json['order_id'] ?? '').toString(),
-          storeId: (json['store_id'] ?? '').toString(),
-          storeName: (json['store_name'] ?? 'Store').toString(),
-          warehouseId: (json['warehouse_id'] ?? '').toString(),
-          warehouseName: (json['warehouse_name'] ?? 'Warehouse').toString(),
+          id: json['id'] as String,
+          orderId: json['order_id'] as String,
+          storeId: json['store_id'] as String,
+          warehouseId: json['warehouse_id'] as String,
           status: status,
           items: items,
           reservedAmount: items.fold<int>(0, (sum, i) => sum + i.quantity),
-          createdAt:
-              DateTime.tryParse((json['created_at'] ?? '').toString()) ??
-              DateTime.now(),
-          updatedAt:
-              DateTime.tryParse((json['updated_at'] ?? '').toString()) ??
-              DateTime.now(),
+          createdAt: DateTime.parse(json['created_at'] as String),
+          updatedAt: DateTime.parse(json['updated_at'] as String),
           syncStatus: SyncStatus.synced,
         );
       }).toList();
@@ -380,31 +423,69 @@ class MockApi {
 
   Future<void> syncAction(SyncAction action, UserSession session) async {
     try {
-      if (action.type == SyncActionType.createOrder) {
-        await _dio.post(
-          '/orders',
-          options: _authOptions(session.token, idempotencyKey: action.id),
-          data: {
-            'store_id': action.payload['storeId'] ?? session.locationId,
-            'warehouse_id': action.payload['warehouseId'] ?? 'WH01',
-            'items': action.payload['items'] ?? <dynamic>[],
-          },
-        );
-      } else if (action.type == SyncActionType.markPacked) {
-        await _dio.patch(
-          '/orders/${action.entityId}/pack',
-          options: _authOptions(session.token, idempotencyKey: action.id),
-        );
-      } else if (action.type == SyncActionType.markDispatched) {
-        await _dio.patch(
-          '/orders/${action.entityId}/dispatch',
-          options: _authOptions(session.token, idempotencyKey: action.id),
-        );
-      } else {
-        await _dio.patch(
-          '/orders/${action.entityId}/confirm-receive',
-          options: _authOptions(session.token, idempotencyKey: action.id),
-        );
+      switch (action.type) {
+        case SyncActionType.createOrder:
+          await _dio.post(
+            '/orders',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+            data: {
+              'store_id': action.payload['storeId'] ?? session.locationId,
+              'warehouse_id': action.payload['warehouseId'] ?? 'WH01',
+              'items': action.payload['items'] ?? <dynamic>[],
+            },
+          );
+        case SyncActionType.markPacked:
+          await _dio.patch(
+            '/orders/${action.entityId}/pack',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+          );
+        case SyncActionType.markDispatched:
+          await _dio.patch(
+            '/orders/${action.entityId}/dispatch',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+          );
+        case SyncActionType.confirmReceive:
+          await _dio.patch(
+            '/orders/${action.entityId}/confirm-receive',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+          );
+        case SyncActionType.checkIn:
+          await _dio.post(
+            '/staff/attendance/check-in',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+            data: {
+              'lat': action.payload['lat'],
+              'lng': action.payload['lng'],
+              if (action.payload['notes'] != null)
+                'notes': action.payload['notes'],
+            },
+          );
+        case SyncActionType.checkOut:
+          final attendanceId = action.entityId;
+          await _dio.post(
+            '/staff/attendance/$attendanceId/check-out',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+            data: {
+              'latitude': action.payload['lat'],
+              'longitude': action.payload['lng'],
+              if (action.payload['notes'] != null)
+                'notes': action.payload['notes'],
+            },
+          );
+        case SyncActionType.startTask:
+          await _dio.patch(
+            '/staff/tasks/${action.entityId}/start',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+          );
+        case SyncActionType.completeTask:
+          await _dio.patch(
+            '/staff/tasks/${action.entityId}/complete',
+            options: _authOptions(session.token, idempotencyKey: action.id),
+            data: {
+              if (action.payload['completionNote'] != null)
+                'completion_note': action.payload['completionNote'],
+            },
+          );
       }
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -414,36 +495,25 @@ class MockApi {
   Future<void> createOrderOnline({
     required UserSession session,
     required String warehouseId,
-    List<Map<String, dynamic>>? items,
-    String? productId,
-    int? quantity,
+    required String productId,
+    required int quantity,
     required String idempotencyKey,
   }) async {
-    final resolvedItems =
-        items ??
-        <Map<String, dynamic>>[
-          {'product_id': productId, 'qty': quantity},
-        ];
-    final validItems = resolvedItems
-        .where(
-          (item) =>
-              (item['product_id']?.toString().isNotEmpty ?? false) &&
-              ((item['qty'] as num?)?.toInt() ?? 0) > 0,
-        )
-        .toList(growable: false);
-    if (validItems.isEmpty) {
-      throw Exception('At least one order item is required.');
+    try {
+      await _dio.post(
+        '/orders',
+        options: _authOptions(session.token, idempotencyKey: idempotencyKey),
+        data: {
+          'store_id': session.locationId,
+          'warehouse_id': warehouseId,
+          'items': [
+            {'product_id': productId, 'qty': quantity},
+          ],
+        },
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
     }
-
-    await _dio.post(
-      '/orders',
-      options: _authOptions(session.token, idempotencyKey: idempotencyKey),
-      data: {
-        'store_id': session.locationId,
-        'warehouse_id': warehouseId,
-        'items': validItems,
-      },
-    );
   }
 
   Future<void> transitionOrderOnline({
@@ -452,10 +522,7 @@ class MockApi {
     required OrderStatus target,
   }) async {
     final endpoint = switch (target) {
-      OrderStatus.confirmed ||
-      OrderStatus.warehouseApproved => '/orders/$orderRef/approve',
-      OrderStatus.pendingWarehouseApproval => null,
-      OrderStatus.warehouseRejected => '/orders/$orderRef/reject',
+      OrderStatus.confirmed => '/orders/$orderRef/approve',
       OrderStatus.packed => '/orders/$orderRef/pack',
       OrderStatus.dispatched => '/orders/$orderRef/dispatch',
       OrderStatus.storeReceived ||
@@ -463,23 +530,28 @@ class MockApi {
       _ => null,
     };
 
-    if (endpoint == null) {
-      return;
-    }
+    if (endpoint == null) return;
 
-    await _dio.patch(
-      endpoint,
-      options: _authOptions(session.token, idempotencyKey: _uuid.v4()),
-    );
+    try {
+      await _dio.patch(
+        endpoint,
+        options: _authOptions(session.token, idempotencyKey: _uuid.v4()),
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
   }
+
+  // ── Locations ─────────────────────────────────────────────────────────────
 
   Future<List<AppLocation>> fetchLocations(String token) async {
     try {
-      final response = await _dio.get<dynamic>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/locations',
         options: _authOptions(token),
       );
-      final rows = _asListPayload(response.data);
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map(
             (row) =>
@@ -491,13 +563,17 @@ class MockApi {
     }
   }
 
+  // ── Users / Employees ─────────────────────────────────────────────────────
+
   Future<List<EmployeeUser>> fetchUsers(String token) async {
     try {
-      final response = await _dio.get<dynamic>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/users',
+        queryParameters: {'limit': 200},
         options: _authOptions(token),
       );
-      final rows = _asListPayload(response.data);
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
       return rows
           .map(
             (row) =>
@@ -518,7 +594,7 @@ class MockApi {
     String? locationId,
   }) async {
     try {
-      final response = await _dio.post<dynamic>(
+      final response = await _dio.post<Map<String, dynamic>>(
         '/users',
         options: _authOptions(token),
         data: {
@@ -529,7 +605,7 @@ class MockApi {
           'location_id': role == UserRole.superadmin ? null : locationId,
         },
       );
-      final data = _asMapPayload(response.data);
+      final data = _safeMap(response.data?['data']);
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -542,12 +618,12 @@ class MockApi {
     required bool active,
   }) async {
     try {
-      final response = await _dio.patch<dynamic>(
+      final response = await _dio.patch<Map<String, dynamic>>(
         '/users/$userId',
         options: _authOptions(token),
         data: {'status': active ? 'active' : 'inactive'},
       );
-      final data = _asMapPayload(response.data);
+      final data = _safeMap(response.data?['data']);
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -558,12 +634,20 @@ class MockApi {
     required String token,
     required String userId,
   }) async {
+    // Backend does not support DELETE /users/:id.
+    // Use PATCH /users/:id/status with status=inactive to deactivate instead.
     try {
-      await _dio.delete<void>('/users/$userId', options: _authOptions(token));
+      await _dio.patch<void>(
+        '/users/$userId/status',
+        options: _authOptions(token),
+        data: {'status': 'inactive'},
+      );
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
   }
+
+  // ── Inventory CRUD ────────────────────────────────────────────────────────
 
   Future<InventoryItem> createInventoryItem({
     required String token,
@@ -579,30 +663,69 @@ class MockApi {
     String? imageFilename,
   }) async {
     try {
-      final form = FormData.fromMap({
-        'location_id': locationId,
-        'sku': sku,
-        'title': title,
-        'brand': brand,
-        'category': category ?? '',
-        'model': model ?? '',
-        'color': color ?? '',
-        'total_stock': totalStock,
-        if (imageBytes != null)
-          'image': MultipartFile.fromBytes(
-            imageBytes,
-            filename: imageFilename ?? 'inventory.jpg',
-            contentType: MediaType('image', 'jpeg'),
-          ),
-      });
-
-      final response = await _dio.post<Map<String, dynamic>>(
-        '/inventory',
+      // Step 1: create the product
+      final productRes = await _dio.post<Map<String, dynamic>>(
+        '/products',
         options: _authOptions(token),
-        data: form,
+        data: {
+          'title': title,
+          'short_name': sku,
+          'sku': sku,
+          'brand': brand,
+          'category': category ?? '',
+          'model': model ?? '',
+          'color': color ?? '',
+          'status': 'present',
+          'custom_style': 'default',
+        },
       );
-      final json = response.data ?? <String, dynamic>{};
-      return _inventoryFromApi(json);
+      final productData = _safeMap(productRes.data?['data']);
+      final productId = productData['id'] as String;
+
+      // Step 2: upload image if provided
+      if (imageBytes != null) {
+        final ext = (imageFilename ?? 'image.jpg').split('.').last.toLowerCase();
+        final mime = ext == 'png' ? 'png' : (ext == 'webp' ? 'webp' : 'jpeg');
+        await _dio.post<void>(
+          '/products/$productId/image',
+          options: _authOptions(token),
+          data: FormData.fromMap({
+            'image': MultipartFile.fromBytes(
+              imageBytes,
+              filename: imageFilename ?? 'image.jpg',
+              contentType: MediaType('image', mime),
+            ),
+          }),
+        );
+      }
+
+      // Step 3: add stock to the location
+      // Backend endpoint is POST /inventory/add-stock (not /inventory/add)
+      await _dio.post<void>(
+        '/inventory/add-stock',
+        options: _authOptions(token),
+        data: {
+          'product_id': productId,
+          'location_id': locationId,
+          'quantity_to_add': totalStock,
+          'reason': 'Initial stock',
+        },
+      );
+
+      return InventoryItem(
+        productId: productId,
+        sku: sku,
+        title: title,
+        locationId: locationId,
+        availableStock: totalStock,
+        reservedStock: 0,
+        totalStock: totalStock,
+        cachedAt: DateTime.now(),
+        brand: brand,
+        category: category ?? '',
+        model: model ?? '',
+        color: color ?? '',
+      );
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -625,32 +748,68 @@ class MockApi {
     String? imageFilename,
   }) async {
     try {
-      final form = FormData.fromMap({
-        'location_id': locationId,
-        if (totalStock != null) 'total_stock': totalStock,
-        if (reservedStock != null) 'reserved_stock': reservedStock,
-        if (issuedStock != null) 'issued_stock': issuedStock,
+      // Update product metadata fields
+      final productFields = <String, dynamic>{
         if (title != null) 'title': title,
         if (brand != null) 'brand': brand,
         if (category != null) 'category': category,
         if (model != null) 'model': model,
         if (color != null) 'color': color,
         if (status != null) 'status': status,
-        if (imageBytes != null)
-          'image': MultipartFile.fromBytes(
-            imageBytes,
-            filename: imageFilename ?? 'inventory.jpg',
-            contentType: MediaType('image', 'jpeg'),
-          ),
-      });
+      };
+      if (productFields.isNotEmpty) {
+        await _dio.patch<void>(
+          '/products/$productRef',
+          options: _authOptions(token),
+          data: productFields,
+        );
+      }
 
-      final response = await _dio.patch<Map<String, dynamic>>(
-        '/inventory/$productRef',
-        options: _authOptions(token),
-        data: form,
+      // Upload image if provided
+      if (imageBytes != null) {
+        final ext = (imageFilename ?? 'image.jpg').split('.').last.toLowerCase();
+        final mime = ext == 'png' ? 'png' : (ext == 'webp' ? 'webp' : 'jpeg');
+        await _dio.post<void>(
+          '/products/$productRef/image',
+          options: _authOptions(token),
+          data: FormData.fromMap({
+            'image': MultipartFile.fromBytes(
+              imageBytes,
+              filename: imageFilename ?? 'image.jpg',
+              contentType: MediaType('image', mime),
+            ),
+          }),
+        );
+      }
+
+      // Adjust stock quantity
+      if (totalStock != null) {
+        await _dio.post<void>(
+          '/inventory/adjust',
+          options: _authOptions(token),
+          data: {
+            'product_id': productRef,
+            'location_id': locationId,
+            'new_quantity': totalStock,
+            'reason': 'Manual update',
+          },
+        );
+      }
+
+      return InventoryItem(
+        productId: productRef,
+        sku: '',
+        title: title ?? '',
+        locationId: locationId,
+        availableStock: totalStock ?? 0,
+        reservedStock: reservedStock ?? 0,
+        totalStock: totalStock ?? 0,
+        cachedAt: DateTime.now(),
+        brand: brand ?? '',
+        category: category ?? '',
+        model: model ?? '',
+        color: color ?? '',
       );
-      final json = response.data ?? <String, dynamic>{};
-      return _inventoryFromApi(json);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
@@ -672,28 +831,27 @@ class MockApi {
     }
   }
 
+  // ── Legacy Staff Records (superadmin attendance) ──────────────────────────
+
   Future<StaffRecordsBundle> fetchMyStaffRecords(String token) async {
     try {
-      final response = await _dio.get<dynamic>(
-        '/staff/attendance',
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/staff/me',
         options: _authOptions(token),
       );
-      final attendanceRows = _asListPayload(response.data);
-      final attendance = attendanceRows
-          .whereType<Map>()
-          .map((row) => _attendanceFromApi(Map<String, dynamic>.from(row)))
-          .toList();
-      return StaffRecordsBundle(
-        attendance: attendance,
-        salaryPayouts: const <SalaryPayoutRecord>[],
-        leaveRecords: const <LeaveRecord>[],
+      final body = response.data ?? <String, dynamic>{};
+      // /staff/me returns {data: <staff_object | null>} — safe to cast as Map
+      final rawData = body['data'];
+      if (rawData is Map<String, dynamic>) {
+        return StaffRecordsBundle.fromJson(rawData);
+      }
+      return const StaffRecordsBundle(
+        attendance: [],
+        salaryPayouts: [],
+        leaveRecords: [],
       );
     } catch (error) {
-      return const StaffRecordsBundle(
-        attendance: <AttendanceRecord>[],
-        salaryPayouts: <SalaryPayoutRecord>[],
-        leaveRecords: <LeaveRecord>[],
-      );
+      throw Exception(_errorMessage(error));
     }
   }
 
@@ -702,29 +860,28 @@ class MockApi {
     String? userId,
   }) async {
     try {
-      final response = await _dio.get<dynamic>(
-        '/staff/attendance',
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/staff/records',
         queryParameters: {
-          if (userId != null && userId.isNotEmpty) 'staff_id': userId,
+          if (userId != null && userId.isNotEmpty) 'user_id': userId,
         },
         options: _authOptions(token),
       );
-      final attendanceRows = _asListPayload(response.data);
-      final attendance = attendanceRows
-          .whereType<Map>()
-          .map((row) => _attendanceFromApi(Map<String, dynamic>.from(row)))
-          .toList();
-      return StaffRecordsBundle(
-        attendance: attendance,
-        salaryPayouts: const <SalaryPayoutRecord>[],
-        leaveRecords: const <LeaveRecord>[],
+      final body = response.data ?? <String, dynamic>{};
+      // /staff/records returns {data: [staff_member, ...]} — a List, not a bundle map.
+      // Check the type before casting to avoid "List is not a subtype of Map" crash.
+      final rawData = body['data'];
+      if (rawData is Map<String, dynamic>) {
+        return StaffRecordsBundle.fromJson(rawData);
+      }
+      // Backend returns a list of staff members — no attendance/salary/leave bundle yet.
+      return const StaffRecordsBundle(
+        attendance: [],
+        salaryPayouts: [],
+        leaveRecords: [],
       );
     } catch (error) {
-      return const StaffRecordsBundle(
-        attendance: <AttendanceRecord>[],
-        salaryPayouts: <SalaryPayoutRecord>[],
-        leaveRecords: <LeaveRecord>[],
-      );
+      throw Exception(_errorMessage(error));
     }
   }
 
@@ -744,53 +901,797 @@ class MockApi {
           'status': status.apiValue,
         },
       );
-      final data = response.data ?? <String, dynamic>{};
+      final data = _safeMap(response.data?['data'] ?? response.data);
       return AttendanceRecord.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
   }
 
+  // ── Staff Members ─────────────────────────────────────────────────────────
+
+  Future<List<StaffMember>> fetchStaffMembers({
+    required String token,
+    String? locationId,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/staff/members',
+        queryParameters: {
+          if (locationId != null && locationId.isNotEmpty)
+            'location_id': locationId,
+          'limit': 200,
+        },
+        options: _authOptions(token),
+      );
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      return rows
+          .map(
+            (row) =>
+                StaffMember.fromJson(Map<String, dynamic>.from(row as Map)),
+          )
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── GPS Attendance (Staff) ────────────────────────────────────────────────
+
+  /// Records a check-in event. [lat]/[lng] are the device's GPS coordinates.
+  Future<StaffAttendanceRecord> staffCheckIn({
+    required String token,
+    required double lat,
+    required double lng,
+    String? notes,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/staff/attendance/check-in',
+        options: _authOptions(token, idempotencyKey: const Uuid().v4()),
+        data: {
+          'latitude': lat,
+          'longitude': lng,
+          if (notes != null) 'notes': notes,
+        },
+      );
+      final data = _safeMap(response.data?['data'] ?? response.data);
+      return StaffAttendanceRecord.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  /// Records a check-out event for an existing attendance record.
+  Future<StaffAttendanceRecord> staffCheckOut({
+    required String token,
+    required String attendanceId,
+    required double lat,
+    required double lng,
+    String? notes,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/staff/attendance/$attendanceId/check-out',
+        options: _authOptions(token, idempotencyKey: const Uuid().v4()),
+        data: {
+          'latitude': lat,
+          'longitude': lng,
+          if (notes != null) 'notes': notes,
+        },
+      );
+      final data = _safeMap(response.data?['data'] ?? response.data);
+      return StaffAttendanceRecord.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<List<StaffAttendanceRecord>> fetchStaffAttendance({
+    required String token,
+    String? staffId,
+    int? month,
+    int? year,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/staff/attendance',
+        queryParameters: {
+          if (staffId != null) 'staff_id': staffId,
+          if (month != null) 'month': month,
+          if (year != null) 'year': year,
+          'limit': 100,
+        },
+        options: _authOptions(token),
+      );
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      return rows
+          .map(
+            (row) => StaffAttendanceRecord.fromJson(
+              Map<String, dynamic>.from(row as Map),
+            ),
+          )
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<List<AttendanceMonthlySummary>> fetchAttendanceSummary({
+    required String token,
+    String? locationId,
+    int? month,
+    int? year,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/staff/attendance/summary',
+        queryParameters: {
+          if (locationId != null) 'location_id': locationId,
+          if (month != null) 'month': month,
+          if (year != null) 'year': year,
+        },
+        options: _authOptions(token),
+      );
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      return rows
+          .map(
+            (row) => AttendanceMonthlySummary.fromJson(
+              Map<String, dynamic>.from(row as Map),
+            ),
+          )
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Tasks ─────────────────────────────────────────────────────────────────
+
+  Future<List<Task>> fetchTasks({
+    required String token,
+    String? assignedToId,
+    String? locationId,
+    String? status,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/staff/tasks',
+        queryParameters: {
+          if (assignedToId != null) 'assigned_to_id': assignedToId,
+          if (locationId != null) 'location_id': locationId,
+          if (status != null) 'status': status,
+          'limit': 100,
+        },
+        options: _authOptions(token),
+      );
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      return rows
+          .map((row) => Task.fromJson(Map<String, dynamic>.from(row as Map)))
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<Task> createTask({
+    required String token,
+    required String title,
+    required String description,
+    required String locationId,
+    required String assignedToId,
+    required TaskPriority priority,
+    required DateTime dueDate,
+    String? relatedOrderId,
+    String? relatedEntityType,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/staff/tasks',
+        options: _authOptions(token),
+        data: {
+          'title': title,
+          'description': description,
+          'location_id': locationId,
+          'assigned_to_id': assignedToId,
+          'priority': priority.apiValue,
+          'due_date': dueDate.toIso8601String().split('T')[0],
+          if (relatedOrderId != null) 'related_order_id': relatedOrderId,
+          if (relatedEntityType != null)
+            'related_entity_type': relatedEntityType,
+        },
+      );
+      final data = _safeMap(response.data?['data']);
+      return Task.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<Task> updateTaskStatus({
+    required String token,
+    required String taskId,
+    required TaskStatus status,
+    String? completionNote,
+  }) async {
+    try {
+      final endpoint = status == TaskStatus.inProgress
+          ? '/staff/tasks/$taskId/start'
+          : '/staff/tasks/$taskId/complete';
+
+      final response = await _dio.patch<Map<String, dynamic>>(
+        endpoint,
+        options: _authOptions(token),
+        data: {
+          if (completionNote != null) 'completion_note': completionNote,
+        },
+      );
+      final data = _safeMap(response.data?['data']);
+      return Task.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
+
+  /// Safely coerce [value] to a Map. Returns an empty map if [value] is null,
+  /// a List, or any other non-Map type — prevents "List is not a subtype of
+  /// Map<String,dynamic>" TypeErrors on unexpected API responses.
+  static Map<String, dynamic> _safeMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return <String, dynamic>{};
+  }
+
   InventoryItem _inventoryFromApi(Map<String, dynamic> json) {
     return InventoryItem(
-      productId: (json['product_id'] ?? '').toString(),
-      sku: (json['sku'] ?? '').toString(),
-      title: (json['title'] ?? '').toString(),
-      locationId: (json['location_id'] ?? '').toString(),
-      availableStock: ((json['available_stock'] ?? 0) as num).toInt(),
-      reservedStock: ((json['reserved_stock'] ?? 0) as num).toInt(),
-      totalStock: ((json['total_stock'] ?? 0) as num).toInt(),
+      productId: json['product_id'] as String,
+      sku: json['sku'] as String,
+      title: json['title'] as String,
+      locationId: json['location_id'] as String,
+      availableStock: (json['available_stock'] as num).toInt(),
+      reservedStock: (json['reserved_stock'] as num).toInt(),
+      totalStock: (json['total_stock'] as num).toInt(),
       cachedAt: DateTime.now(),
-      brand: (json['brand'] ?? '').toString(),
-      category: (json['category'] ?? '').toString(),
-      model: (json['model'] ?? '').toString(),
-      color: (json['color'] ?? '').toString(),
-      imageUrl: (json['image_url'] ?? json['imageUrl']) as String?,
+      brand: (json['brand'] ?? '') as String,
+      category: (json['category'] ?? '') as String,
+      model: (json['model'] ?? '') as String,
+      color: (json['color'] ?? '') as String,
+      imageUrl: json['image_url'] as String?,
     );
   }
 
-  AttendanceRecord _attendanceFromApi(Map<String, dynamic> json) {
-    final dateValue = (json['attendance_date'] ?? json['date'] ?? '')
-        .toString();
-    final markedValue =
-        (json['marked_at'] ?? json['check_in_time'] ?? json['updated_at'] ?? '')
-            .toString();
-    return AttendanceRecord(
-      id: (json['id'] ?? _uuid.v4()).toString(),
-      userId: (json['user_id'] ?? json['staff_id'] ?? '').toString(),
-      userName: (json['user_name'] ?? json['name'] ?? 'Staff').toString(),
-      attendanceDate: DateTime.tryParse(dateValue) ?? DateTime.now(),
-      status: AttendanceStatusApi.fromApi(
-        (json['status'] ?? 'present').toString(),
-      ),
-      markedAt: DateTime.tryParse(markedValue) ?? DateTime.now(),
-      locationName: json['location_name'] as String?,
-    );
+  // ── Orders — extended ─────────────────────────────────────────────────────
+
+  Future<void> rejectOrder({
+    required String token,
+    required String orderRef,
+    required String reason,
+  }) async {
+    try {
+      await _dio.patch(
+        '/orders/$orderRef/reject',
+        options: _authOptions(token, idempotencyKey: _uuid.v4()),
+        data: {'reason': reason},
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<void> dispatchOrderWithNotes({
+    required String token,
+    required String orderRef,
+    String? notes,
+  }) async {
+    try {
+      await _dio.patch(
+        '/orders/$orderRef/dispatch',
+        options: _authOptions(token, idempotencyKey: _uuid.v4()),
+        data: {if (notes != null && notes.isNotEmpty) 'notes': notes},
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<void> createMultiItemOrderOnline({
+    required UserSession session,
+    required String warehouseId,
+    required List<Map<String, dynamic>> items,
+    required String idempotencyKey,
+  }) async {
+    try {
+      await _dio.post(
+        '/orders',
+        options: _authOptions(session.token, idempotencyKey: idempotencyKey),
+        data: {
+          'store_id': session.locationId,
+          'warehouse_id': warehouseId,
+          'items': items,
+        },
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Inventory — adjust stock ───────────────────────────────────────────────
+
+  Future<void> adjustStock({
+    required String token,
+    required String productRef,
+    required String locationId,
+    required int newQuantity,
+    required String reason,
+    String? notes,
+  }) async {
+    try {
+      await _dio.post(
+        '/inventory/adjust',
+        options: _authOptions(token),
+        data: {
+          'product_id': productRef,
+          'location_id': locationId,
+          'new_quantity': newQuantity,
+          'reason': reason,
+          if (notes != null) 'notes': notes,
+        },
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<List<StockMovement>> fetchStockMovements({
+    required String token,
+    String? locationId,
+    String? productId,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/inventory/movements',
+        queryParameters: {
+          if (locationId != null) 'location_id': locationId,
+          if (productId != null) 'product_id': productId,
+          'limit': 100,
+        },
+        options: _authOptions(token),
+      );
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      return rows
+          .map((r) => StockMovement.fromJson(Map<String, dynamic>.from(r as Map)))
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Stock Transfers ────────────────────────────────────────────────────────
+
+  Future<void> transferStock({
+    required String token,
+    required String fromLocationId,
+    required String toLocationId,
+    required String productId,
+    required int quantity,
+    String? note,
+  }) async {
+    try {
+      await _dio.post(
+        '/transfers',
+        options: _authOptions(token, idempotencyKey: _uuid.v4()),
+        data: {
+          'from_location_id': fromLocationId,
+          'to_location_id': toLocationId,
+          'product_id': productId,
+          'quantity': quantity,
+          if (note != null) 'note': note,
+        },
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Bulk Orders ───────────────────────────────────────────────────────────
+
+  Future<List<BulkOrder>> fetchBulkOrders(String token) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/bulk-orders',
+        queryParameters: {'limit': 100},
+        options: _authOptions(token),
+      );
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      return rows
+          .map((r) => BulkOrder.fromJson(Map<String, dynamic>.from(r as Map)))
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<void> transitionBulkOrder({
+    required String token,
+    required String orderId,
+    required BulkOrderStatus target,
+  }) async {
+    final endpoint = switch (target) {
+      BulkOrderStatus.packed => '/bulk-orders/$orderId/pack',
+      BulkOrderStatus.dispatched => '/bulk-orders/$orderId/dispatch',
+      BulkOrderStatus.cancelled => '/bulk-orders/$orderId/cancel',
+      _ => null,
+    };
+    if (endpoint == null) return;
+    try {
+      await _dio.patch(
+        endpoint,
+        options: _authOptions(token, idempotencyKey: _uuid.v4()),
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<void> createBulkOrder({
+    required String token,
+    required String clientId,
+    required String warehouseId,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    try {
+      await _dio.post(
+        '/bulk-orders',
+        options: _authOptions(token, idempotencyKey: _uuid.v4()),
+        data: {
+          'client_store_id': clientId,
+          'warehouse_id': warehouseId,
+          'items': items,
+        },
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Products CRUD ─────────────────────────────────────────────────────────
+
+  Future<Product> createProduct({
+    required String token,
+    required String title,
+    required String shortName,
+    required String sku,
+    required String brand,
+    required String category,
+    required String model,
+    required String color,
+    String status = 'present',
+    String customStyle = 'default',
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/products',
+        options: _authOptions(token),
+        data: {
+          'title': title,
+          'short_name': shortName,
+          'sku': sku,
+          'brand': brand,
+          'category': category,
+          'model': model,
+          'color': color,
+          'status': status,
+          'custom_style': customStyle,
+        },
+      );
+      final data = _safeMap(response.data?['data']);
+      return Product.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<Product> updateProduct({
+    required String token,
+    required String productId,
+    String? title,
+    String? shortName,
+    String? brand,
+    String? category,
+    String? model,
+    String? color,
+    String? status,
+    String? customStyle,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/products/$productId',
+        options: _authOptions(token),
+        data: {
+          if (title != null) 'title': title,
+          if (shortName != null) 'short_name': shortName,
+          if (brand != null) 'brand': brand,
+          if (category != null) 'category': category,
+          if (model != null) 'model': model,
+          if (color != null) 'color': color,
+          if (status != null) 'status': status,
+          if (customStyle != null) 'custom_style': customStyle,
+        },
+      );
+      final data = _safeMap(response.data?['data']);
+      return Product.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<void> deleteProduct({
+    required String token,
+    required String productId,
+  }) async {
+    try {
+      await _dio.delete<void>('/products/$productId', options: _authOptions(token));
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  /// Upload (or replace) the image for an existing product.
+  /// Returns the public URL of the uploaded image.
+  Future<String> uploadProductImage({
+    required String token,
+    required String productId,
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    try {
+      final ext = filename.split('.').last.toLowerCase();
+      final mime = ext == 'png' ? 'png' : (ext == 'webp' ? 'webp' : 'jpeg');
+      final form = FormData.fromMap({
+        'image': MultipartFile.fromBytes(
+          bytes,
+          filename: filename,
+          contentType: MediaType('image', mime),
+        ),
+      });
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/products/$productId/image',
+        options: _authOptions(token),
+        data: form,
+      );
+      final data = response.data ?? <String, dynamic>{};
+      return (data['data']?['url'] as String?) ?? '';
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+
+  Future<({List<AppNotification> items, int unreadCount})> fetchNotifications({
+    required String token,
+    bool? unreadOnly,
+    int page = 1,
+    int limit = 20,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/notifications',
+        queryParameters: {
+          'page': page,
+          'limit': limit,
+          if (unreadOnly == true) 'read': 'false',
+        },
+        options: _authOptions(token),
+      );
+      final body = response.data ?? <String, dynamic>{};
+      final items = (body['data'] as List<dynamic>? ?? const <dynamic>[])
+          .map((e) => AppNotification.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      final unreadCount = (body['unread_count'] as num?)?.toInt() ?? 0;
+      return (items: items, unreadCount: unreadCount);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<void> markNotificationRead({
+    required String token,
+    required String notificationId,
+  }) async {
+    try {
+      await _dio.patch<void>(
+        '/notifications/$notificationId/read',
+        options: _authOptions(token),
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<void> markAllNotificationsRead({required String token}) async {
+    try {
+      await _dio.patch<void>(
+        '/notifications/read-all',
+        options: _authOptions(token),
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Locations CRUD ────────────────────────────────────────────────────────
+
+  Future<AppLocation> createLocation({
+    required String token,
+    required String code,
+    required String name,
+    required String type,
+    String address = '',
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/locations',
+        options: _authOptions(token),
+        data: {'location_code': code, 'name': name, 'type': type, 'address': address},
+      );
+      final data = _safeMap(response.data?['data']);
+      return AppLocation.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<AppLocation> updateLocation({
+    required String token,
+    required String locationId,
+    String? code,
+    String? name,
+    String? address,
+    String? status,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/locations/$locationId',
+        options: _authOptions(token),
+        data: {
+          if (code != null) 'location_code': code,
+          if (name != null) 'name': name,
+          if (address != null) 'address': address,
+          if (status != null) 'status': status,
+        },
+      );
+      final data = _safeMap(response.data?['data']);
+      return AppLocation.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Clients CRUD ──────────────────────────────────────────────────────────
+
+  Future<List<Client>> fetchClients(String token) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/clients',
+        queryParameters: {'limit': 200},
+        options: _authOptions(token),
+      );
+      final body = response.data ?? <String, dynamic>{};
+      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      return rows
+          .map((r) => Client.fromJson(Map<String, dynamic>.from(r as Map)))
+          .toList();
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<Client> createClient({
+    required String token,
+    required String name,
+    required String code,
+    required String contactName,
+    required String contactEmail,
+    String phone = '',
+    String address = '',
+    String city = '',
+    String gstNumber = '',
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/clients',
+        options: _authOptions(token),
+        data: {
+          'name': name,
+          'code': code,
+          'contact_name': contactName,
+          'contact_email': contactEmail,
+          'phone': phone,
+          'address': address,
+          'city': city,
+          'gst_number': gstNumber,
+        },
+      );
+      final data = _safeMap(response.data?['data']);
+      return Client.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<Client> updateClientStatus({
+    required String token,
+    required String clientId,
+    required String status,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/clients/$clientId/status',
+        options: _authOptions(token),
+        data: {'status': status},
+      );
+      final data = _safeMap(response.data?['data']);
+      return Client.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  // ── Users — extended ──────────────────────────────────────────────────────
+
+  Future<EmployeeUser> updateEmployee({
+    required String token,
+    required String userId,
+    String? name,
+    String? email,
+    String? role,
+    String? locationId,
+  }) async {
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/users/$userId',
+        options: _authOptions(token),
+        data: {
+          if (name != null) 'name': name,
+          if (email != null) 'email': email,
+          if (role != null) 'role': role,
+          if (locationId != null) 'location_id': locationId,
+        },
+      );
+      final data = _safeMap(response.data?['data']);
+      return EmployeeUser.fromJson(data);
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
+  }
+
+  Future<void> resetEmployeePassword({
+    required String token,
+    required String userId,
+    required String newPassword,
+  }) async {
+    try {
+      await _dio.patch(
+        '/users/$userId',
+        options: _authOptions(token),
+        data: {'password': newPassword},
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
   }
 
   // ─── Rich mock product catalog ──────────────────────────────────
 
-  // ignore: unused_field
   static final List<Product> _mockProducts = [
     const Product(
       id: 'P001',
@@ -906,153 +1807,88 @@ class MockApi {
     ),
   ];
 
-  // ignore: unused_field
   static final List<StoreOrder> _mockOrders = [
     StoreOrder(
       id: 'O1',
-      orderId: 'ORD-WH01-ST01-20260420-001',
+      orderId: 'ORD-ST01-20260412-0001',
       storeId: 'ST01',
-      storeName: 'Premium Store - Delhi CP',
       warehouseId: 'WH01',
-      warehouseName: 'Main Warehouse - Delhi',
-      status: OrderStatus.pendingWarehouseApproval,
+      status: OrderStatus.confirmed,
       items: const [
         OrderItem(
           productId: 'P001',
-          title: 'Samsung 55" Smart TV 4K',
+          title: 'Samsung 55" QLED Smart TV',
           sku: 'SKU-TV-001',
-          quantity: 2,
-        ),
-        OrderItem(
-          productId: 'P011',
-          title: 'Office Paper A4 500 sheets',
-          sku: 'SKU-SUP-001',
-          quantity: 12,
+          quantity: 5,
         ),
       ],
-      reservedAmount: 14,
-      createdAt: DateTime.now().subtract(const Duration(hours: 2)),
-      updatedAt: DateTime.now().subtract(const Duration(hours: 1, minutes: 20)),
+      reservedAmount: 5,
+      createdAt: DateTime.now().subtract(const Duration(hours: 3)),
+      updatedAt: DateTime.now().subtract(const Duration(hours: 2)),
       syncStatus: SyncStatus.synced,
     ),
     StoreOrder(
       id: 'O2',
-      orderId: 'ORD-WH02-ST02-20260419-001',
-      storeId: 'ST02',
-      storeName: 'Branch Store - Mumbai Andheri',
-      warehouseId: 'WH02',
-      warehouseName: 'Regional Warehouse - Mumbai',
-      status: OrderStatus.warehouseApproved,
+      orderId: 'ORD-ST01-20260412-0002',
+      storeId: 'ST01',
+      warehouseId: 'WH01',
+      status: OrderStatus.packed,
       items: const [
         OrderItem(
-          productId: 'P007',
-          title: 'LG French Door Refrigerator',
-          sku: 'SKU-APP-001',
-          quantity: 1,
+          productId: 'P002',
+          title: 'LG Double Door Refrigerator',
+          sku: 'SKU-FRD-001',
+          quantity: 3,
         ),
       ],
-      reservedAmount: 1,
-      createdAt: DateTime.now().subtract(const Duration(days: 1, hours: 3)),
-      updatedAt: DateTime.now().subtract(const Duration(hours: 6)),
+      reservedAmount: 3,
+      createdAt: DateTime.now().subtract(const Duration(hours: 5)),
+      updatedAt: DateTime.now().subtract(const Duration(hours: 1)),
       syncStatus: SyncStatus.synced,
     ),
     StoreOrder(
       id: 'O3',
-      orderId: 'ORD-WH01-ST03-20260418-001',
-      storeId: 'ST03',
-      storeName: 'Outlet Store - Bengaluru',
+      orderId: 'ORD-ST01-20260411-0003',
+      storeId: 'ST01',
       warehouseId: 'WH01',
-      warehouseName: 'Main Warehouse - Delhi',
       status: OrderStatus.dispatched,
       items: const [
         OrderItem(
           productId: 'P003',
-          title: 'iPhone 15 Pro Max 256GB',
-          sku: 'SKU-PH-001',
-          quantity: 3,
+          title: 'Sony WH-1000XM5 Headphones',
+          sku: 'SKU-HP-001',
+          quantity: 10,
         ),
         OrderItem(
-          productId: 'P013',
-          title: 'Desk Lamp LED 15W',
-          sku: 'SKU-OFF-001',
-          quantity: 6,
+          productId: 'P006',
+          title: 'Samsung Galaxy S24 Ultra',
+          sku: 'SKU-PH-001',
+          quantity: 4,
         ),
       ],
-      reservedAmount: 9,
-      createdAt: DateTime.now().subtract(const Duration(days: 2, hours: 4)),
-      updatedAt: DateTime.now().subtract(const Duration(hours: 4)),
+      reservedAmount: 14,
+      createdAt: DateTime.now().subtract(const Duration(hours: 26)),
+      updatedAt: DateTime.now().subtract(const Duration(hours: 6)),
       syncStatus: SyncStatus.synced,
     ),
     StoreOrder(
       id: 'O4',
-      orderId: 'ORD-WH02-ST01-20260417-001',
+      orderId: 'ORD-ST01-20260410-0004',
       storeId: 'ST01',
-      storeName: 'Premium Store - Delhi CP',
-      warehouseId: 'WH02',
-      warehouseName: 'Regional Warehouse - Mumbai',
-      status: OrderStatus.warehouseRejected,
+      warehouseId: 'WH01',
+      status: OrderStatus.completed,
       items: const [
         OrderItem(
-          productId: 'P006',
-          title: 'LG French Door Refrigerator',
-          sku: 'SKU-APP-001',
+          productId: 'P004',
+          title: 'Apple MacBook Pro 14"',
+          sku: 'SKU-LPT-001',
           quantity: 2,
         ),
       ],
       reservedAmount: 2,
-      createdAt: DateTime.now().subtract(const Duration(days: 3, hours: 2)),
-      updatedAt: DateTime.now().subtract(const Duration(days: 3, hours: 1)),
+      createdAt: DateTime.now().subtract(const Duration(days: 3)),
+      updatedAt: DateTime.now().subtract(const Duration(days: 2)),
       syncStatus: SyncStatus.synced,
     ),
   ];
-}
-
-class _NetworkLoggingInterceptor extends Interceptor {
-  static const _startedAtKey = 'startedAt';
-
-  @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    options.extra[_startedAtKey] = DateTime.now();
-    AppLogger.info('API request', {
-      'method': options.method,
-      'url': options.uri,
-      'hasAuth': options.headers.containsKey('Authorization'),
-    });
-    handler.next(options);
-  }
-
-  @override
-  void onResponse(Response<dynamic> response, ResponseInterceptorHandler handler) {
-    AppLogger.info('API response', {
-      'method': response.requestOptions.method,
-      'url': response.requestOptions.uri,
-      'status': response.statusCode,
-      'durationMs': _durationMs(response.requestOptions),
-    });
-    handler.next(response);
-  }
-
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) {
-    AppLogger.error(
-      'API transport error',
-      error: err.message,
-      context: {
-        'method': err.requestOptions.method,
-        'url': err.requestOptions.uri,
-        'type': err.type.name,
-        'status': err.response?.statusCode,
-        'durationMs': _durationMs(err.requestOptions),
-      },
-    );
-    handler.next(err);
-  }
-
-  int? _durationMs(RequestOptions options) {
-    final startedAt = options.extra[_startedAtKey];
-    if (startedAt is! DateTime) {
-      return null;
-    }
-    return DateTime.now().difference(startedAt).inMilliseconds;
-  }
 }

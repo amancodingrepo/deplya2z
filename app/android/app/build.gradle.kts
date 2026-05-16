@@ -32,9 +32,18 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Signing with debug keys for now — replace with a real keystore before
+            // publishing to the Play Store.
             signingConfig = signingConfigs.getByName("debug")
+
+            // Minification is OFF by default. When you enable it, the proguard-rules.pro
+            // file above will prevent Flutter plugins and OkHttp from being stripped.
+            isMinifyEnabled = false
+            isShrinkResources = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

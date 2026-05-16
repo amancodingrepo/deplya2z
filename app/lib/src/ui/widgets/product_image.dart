@@ -12,8 +12,6 @@ class ProductImage extends StatelessWidget {
     this.localPath,
     this.size = 60,
     this.borderRadius = 12,
-    this.fit = BoxFit.cover,
-    this.padding = EdgeInsets.zero,
     this.icon,
   });
 
@@ -21,8 +19,6 @@ class ProductImage extends StatelessWidget {
   final String? localPath;
   final double size;
   final double borderRadius;
-  final BoxFit fit;
-  final EdgeInsets padding;
   final IconData? icon;
 
   @override
@@ -39,7 +35,7 @@ class ProductImage extends StatelessWidget {
         ),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Padding(padding: padding, child: _buildContent()),
+      child: _buildContent(),
     );
   }
 
@@ -48,7 +44,7 @@ class ProductImage extends StatelessWidget {
     if (localPath != null && localPath!.isNotEmpty) {
       return Image.file(
         File(localPath!),
-        fit: fit,
+        fit: BoxFit.cover,
         errorBuilder: (context, error, stack) => _placeholder(),
       );
     }
@@ -56,7 +52,7 @@ class ProductImage extends StatelessWidget {
     if (imageUrl != null && imageUrl!.isNotEmpty) {
       return Image.network(
         imageUrl!,
-        fit: fit,
+        fit: BoxFit.cover,
         errorBuilder: (context, error, stack) => _placeholder(),
         loadingBuilder: (_, child, progress) {
           if (progress == null) return child;

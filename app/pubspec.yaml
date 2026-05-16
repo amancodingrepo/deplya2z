@@ -47,6 +47,19 @@ dependencies:
   cached_network_image: ^3.4.1
   http_parser: ^4.1.2
 
+  # GPS / Location (Staff check-in/check-out)
+  geolocator: ^10.1.0
+  permission_handler: ^11.0.0
+
+  # Calendar for attendance view
+  table_calendar: ^3.0.9
+
+  # Share attendance report
+  share_plus: ^7.2.0
+
+  # Typography — Sora, DM Sans, JetBrains Mono
+  google_fonts: ^6.2.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
