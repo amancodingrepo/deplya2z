@@ -200,7 +200,7 @@ class _UsersTab extends ConsumerWidget {
     final controller = ref.read(appControllerProvider.notifier);
     final nameCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
-    final passCtrl = TextEditingController(text: '1234');
+    final passCtrl = TextEditingController(text: 'Welcome@123');
     UserRole role = UserRole.storeManager;
     String? locationCode = state.locations
         .where((l) => l.type == 'store')
