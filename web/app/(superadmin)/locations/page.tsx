@@ -36,13 +36,19 @@ export default function LocationsPage() {
         description="Manage warehouses and stores"
         breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Locations' }]}
         actions={
-          <a href="/locations/create">
-            <Button size="sm"><PlusIcon /> Add Location</Button>
-          </a>
+          <div className="flex gap-2">
+            <button onClick={load} className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-muted-foreground hover:bg-surface-raised transition-colors">↻ Refresh</button>
+            <a href="/locations/create">
+              <Button size="sm"><PlusIcon /> Add Location</Button>
+            </a>
+          </div>
         }
       />
 
-      {/* Summary */}
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">{error}</div>
+      )}
+
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
           { label: 'Total Locations', value: total },
@@ -52,7 +58,7 @@ export default function LocationsPage() {
         ].map((s) => (
           <div key={s.label} className="rounded-lg border border-border bg-surface p-4">
             <p className="text-xs text-muted-foreground">{s.label}</p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums">{s.value}</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">{loading ? '…' : s.value}</p>
           </div>
         ))}
       </div>

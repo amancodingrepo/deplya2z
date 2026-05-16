@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { Sidebar } from '../../components/layout/sidebar';
 import { Header } from '../../components/layout/header';
 import {
-  HomeIcon, PlusIcon, ClipboardIcon, LayersIcon, CogIcon,
+  HomeIcon, PlusIcon, ClipboardIcon, LayersIcon, CogIcon, ChartBarIcon,
 } from '../../components/layout/icons';
 import { getAuth, clearAuth, getUserInitials } from '../../lib/auth';
 
@@ -25,6 +25,7 @@ const navGroups = [
     label: 'Stock',
     items: [
       { label: 'Inventory', href: '/st/inventory', icon: <LayersIcon /> },
+      { label: 'Reports', href: '/st/reports', icon: <ChartBarIcon /> },
     ],
   },
   {

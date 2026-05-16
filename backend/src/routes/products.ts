@@ -24,7 +24,7 @@ const productImageUpload = multer({
 
 export const productsRouter = Router();
 
-productsRouter.use(authRequired, rolesAllowed(['superadmin', 'warehouse_manager', 'store_manager']));
+productsRouter.use(authRequired, rolesAllowed(['superadmin', 'warehouse_manager']));
 
 // GET /products — enhanced with pagination and filters
 productsRouter.get('/', async (req, res, next) => {
@@ -240,10 +240,10 @@ const createProductSchema = z.object({
 
 const updateProductSchema = createProductSchema.partial().omit({ initial_stock: true, initial_stock_reason: true });
 
-// POST /products
+// POST /products — warehouse_manager only
 productsRouter.post(
   '/',
-  rolesAllowed(['superadmin', 'warehouse_manager']),
+  rolesAllowed(['warehouse_manager']),
   async (req, res, next) => {
     try {
       const parsed = createProductSchema.safeParse(req.body);
@@ -331,10 +331,10 @@ productsRouter.post(
   },
 );
 
-// PUT /products/:id
+// PUT /products/:id — superadmin only (edit)
 productsRouter.put(
   '/:id',
-  rolesAllowed(['superadmin', 'warehouse_manager']),
+  rolesAllowed(['superadmin']),
   async (req, res, next) => {
     try {
       const id = String(req.params.id);

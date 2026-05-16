@@ -83,7 +83,7 @@ CREATE POLICY products_read_all ON products
 
 CREATE POLICY products_write_admin ON products
   FOR INSERT
-  USING (current_app_role() IN ('superadmin', 'warehouse_manager'));
+  WITH CHECK (current_app_role() IN ('superadmin', 'warehouse_manager'));
 
 CREATE POLICY products_update_admin ON products
   FOR UPDATE
@@ -165,9 +165,8 @@ ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY order_items_all ON order_items
   FOR ALL
-  USING (
-    current_app_role() IN ('superadmin', 'warehouse_manager', 'store_manager')
-  );
+  USING (current_app_role() IN ('superadmin', 'warehouse_manager', 'store_manager'))
+  WITH CHECK (current_app_role() IN ('superadmin', 'warehouse_manager', 'store_manager'));
 
 -- ─── bulk_orders ─────────────────────────────────────────────
 -- Superadmins see all. Warehouse managers see their warehouse's bulk orders.
@@ -189,7 +188,8 @@ ALTER TABLE bulk_order_items ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY bulk_order_items_all ON bulk_order_items
   FOR ALL
-  USING (current_app_role() IN ('superadmin', 'warehouse_manager'));
+  USING (current_app_role() IN ('superadmin', 'warehouse_manager'))
+  WITH CHECK (current_app_role() IN ('superadmin', 'warehouse_manager'));
 
 -- ─── client_stores ───────────────────────────────────────────
 -- Superadmins and warehouse managers can read. Only superadmin can write.
@@ -201,7 +201,8 @@ CREATE POLICY client_stores_read ON client_stores
 
 CREATE POLICY client_stores_write ON client_stores
   FOR ALL
-  USING (current_app_role() = 'superadmin');
+  USING (current_app_role() = 'superadmin')
+  WITH CHECK (current_app_role() = 'superadmin');
 
 -- ─── transfer_requests ───────────────────────────────────────
 -- Superadmins see all. Managers see transfers involving their location.
@@ -236,11 +237,12 @@ CREATE POLICY audit_logs_insert ON audit_logs
 
 -- ─── idempotency_logs ────────────────────────────────────────
 -- Users can only see their own idempotency records.
-ALTER TABLE idempotency_logs ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE idempotency_logs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY idempotency_logs_own ON idempotency_logs
-  FOR ALL
-  USING (user_id = current_app_user_id());
+-- CREATE POLICY idempotency_logs_own ON idempotency_logs
+--   FOR ALL
+--   USING (user_id = current_app_user_id())
+--   WITH CHECK (user_id = current_app_user_id());
 
 -- ─── notifications ───────────────────────────────────────────
 -- Users can only see their own notifications.
@@ -248,4 +250,5 @@ ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY notifications_own ON notifications
   FOR ALL
-  USING (user_id = current_app_user_id());
+  USING (user_id = current_app_user_id())
+  WITH CHECK (user_id = current_app_user_id());

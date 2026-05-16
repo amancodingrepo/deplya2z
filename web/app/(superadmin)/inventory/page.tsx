@@ -60,32 +60,14 @@ function stockStatus(row: ProductRow, locationCodes: string[]) {
   return { label: 'In Stock', variant: 'success' as const };
 }
 
-/* ─── Adjust Stock Modal Content ─────────────────── */
-function AdjustModalContent({ name, currentStock }: { name: string; currentStock: number }) {
-  const [qty, setQty] = useState('');
-  const [reason, setReason] = useState('');
-  const [notes, setNotes] = useState('');
-  return (
-    <div className="flex flex-col gap-4 pt-2">
-      <div className="rounded-lg border border-border bg-surface-raised px-4 py-3">
-        <p className="text-[12px] text-muted-foreground">Current stock</p>
-        <p className="text-[20px] font-bold text-foreground tabular-nums">{currentStock}</p>
-        <p className="text-[12px] font-medium text-foreground">{name}</p>
-      </div>
-      <Input label="New Quantity" type="number" min="0" value={qty} onChange={e => setQty(e.target.value)} placeholder="Enter new total quantity" />
-      <Select label="Reason" options={reasonOptions} value={reason} onChange={e => setReason(e.target.value)} placeholder="Select reason" />
-      {reason === 'other' && (
-        <div>
-          <label className="block text-[13px] font-medium text-foreground mb-1.5">Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Describe the reason..."
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none" />
-        </div>
-      )}
-    </div>
-  );
+interface AdjustState {
+  product_id: string;
+  product_title: string;
+  location_id: string;
+  location_code: string;
+  current: number;
 }
 
-/* ─── Page ───────────────────────────────────────── */
 export default function InventoryPage() {
   const [view, setView] = useState<'product' | 'location'>('product');
   const [search, setSearch] = useState('');
@@ -161,6 +143,64 @@ export default function InventoryPage() {
     return true;
   });
 
+  // Group by location for location view
+  const byLocation = locations.map(loc => {
+    const locRows = rows.filter(r => r.location_id === loc.id);
+    return {
+      ...loc,
+      products: locRows.length,
+      stock: locRows.reduce((s, r) => s + r.quantity, 0),
+      reserved: locRows.reduce((s, r) => s + r.reserved, 0),
+      lowStock: locRows.filter(r => r.available <= r.threshold && r.available > 0).length,
+    };
+  });
+
+  function openAdjust(p: GroupedProduct) {
+    const firstRow = p.rows[0];
+    setAdjusting({
+      product_id: p.product_id,
+      product_title: p.product_title,
+      location_id: firstRow.location_id,
+      location_code: firstRow.location_code,
+      current: firstRow.available,
+    });
+    setAdjLocationId(firstRow.location_id);
+    setAdjQty('');
+    setAdjReason('');
+    setAdjNotes('');
+    setAdjError('');
+  }
+
+  async function handleAdjustConfirm() {
+    if (!adjusting) return;
+    const qty = parseInt(adjQty);
+    if (!adjQty || isNaN(qty) || qty < 0) { setAdjError('Enter a valid quantity.'); return; }
+    if (!adjReason) { setAdjError('Select a reason.'); return; }
+    if (!adjLocationId) { setAdjError('Select a location.'); return; }
+    const token = getToken();
+    if (!token) return;
+    setAdjSaving(true); setAdjError('');
+    try {
+      await apiInventoryAdjust(token, {
+        product_id: adjusting.product_id,
+        location_id: adjLocationId,
+        new_quantity: qty,
+        reason: adjReason,
+        notes: adjReason === 'other' ? adjNotes : undefined,
+      });
+      setAdjusting(null);
+      load();
+    } catch (e: any) {
+      setAdjError(e.message ?? 'Adjustment failed.');
+    } finally {
+      setAdjSaving(false);
+    }
+  }
+
+  const adjProductRows = adjusting ? (seen.get(adjusting.product_id)?.rows ?? []) : [];
+  const adjLocationOptions = adjProductRows.map(r => ({ value: r.location_id, label: `${r.location_code} — ${r.location_name} (avail: ${r.available})` }));
+  const adjCurrentRow = adjProductRows.find(r => r.location_id === adjLocationId);
+
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
@@ -177,9 +217,12 @@ export default function InventoryPage() {
             {loading && <span className="ml-1 animate-pulse text-[11px]">· Loading…</span>}
           </p>
         </div>
-        <Link href="/inventory/movements">
-          <Button variant="outline" size="sm">View Movements</Button>
-        </Link>
+        <div className="flex gap-2">
+          <button onClick={load} className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-muted-foreground hover:bg-surface-raised transition-colors">↻ Refresh</button>
+          <Link href="/inventory/movements">
+            <Button variant="outline" size="sm">View Movements</Button>
+          </Link>
+        </div>
       </div>
 
       {/* View toggle */}
@@ -255,15 +298,18 @@ export default function InventoryPage() {
                     <tr>
                       <td colSpan={locationCodes.length + 4} className="px-4 py-10 text-center text-[13px] text-muted-foreground">No products match the filter</td>
                     </tr>
+                  ))}
+                  {!loading && filteredGrouped.length === 0 && (
+                    <tr><td colSpan={8} className="px-4 py-10 text-center text-[13px] text-muted-foreground">No products match the filter</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
-              <span className="text-[11px] font-mono">avail / reserved / total</span>
-              <span className="mx-2">·</span>
-              <span className="text-success font-semibold">green</span> = healthy · <span className="text-warning font-semibold">amber</span> = low · <span className="text-destructive font-semibold">red</span> = zero
-            </div>
+            {!loading && (
+              <div className="border-t border-border px-4 py-2 text-[12px] text-muted-foreground">
+                Showing {filteredGrouped.length} of {grouped.length} products
+              </div>
+            )}
           </div>
         </>
       )}
@@ -310,14 +356,14 @@ export default function InventoryPage() {
       )}
 
       {/* Stock adjustment modal */}
-      {adjustingProduct && (
+      {adjusting && (
         <Dialog
           open
-          onClose={() => setAdjustingProduct(null)}
-          title={`Adjust Stock — ${adjustingProduct.name}`}
-          confirmLabel="Save Adjustment"
+          onClose={() => setAdjusting(null)}
+          title={`Adjust Stock — ${adjusting.product_title}`}
+          confirmLabel={adjSaving ? 'Saving…' : 'Save Adjustment'}
           confirmVariant="primary"
-          onConfirm={() => setAdjustingProduct(null)}
+          onConfirm={handleAdjustConfirm}
         >
           <AdjustModalContent
             name={adjustingProduct.name}

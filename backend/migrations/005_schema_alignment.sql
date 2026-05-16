@@ -21,7 +21,8 @@ ALTER TABLE locations
 
 -- ─── users: add phone field + superadmin constraint ──────────
 ALTER TABLE users
-  ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+  ADD COLUMN IF NOT EXISTS phone VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_unique
   ON users(phone) WHERE phone IS NOT NULL AND deleted_at IS NULL;
@@ -48,6 +49,9 @@ ALTER TABLE products
   );
 
 -- Ensure low_stock_threshold is non-negative
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS low_stock_threshold INTEGER NOT NULL DEFAULT 10;
+
 ALTER TABLE products
   DROP CONSTRAINT IF EXISTS products_low_stock_threshold_check;
 ALTER TABLE products

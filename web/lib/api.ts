@@ -19,15 +19,23 @@ export interface Product {
   id: string;
   sku: string;
   title: string;
-  shortName: string;
+  shortName?: string;
+  short_name?: string;
   brand: string;
-  vendor: string;
-  category: string;
-  model: string;
-  color: string;
+  vendor?: string;
+  category?: string;
+  model?: string;
+  color?: string;
   status: 'present' | 'inactive' | 'discontinued';
   customTag?: string;
   customCode?: string;
+  custom_style?: string;
+  image_url?: string;
+  thumbnail_url?: string;
+  low_stock_threshold?: number;
+  total_stock?: number;
+  reserved_stock?: number;
+  available_stock?: number;
   image?: string;
   description?: string;
   price?: number;
@@ -133,11 +141,14 @@ export interface Location {
 export interface ClientStore {
   id: string;
   name: string;
+  code?: string;
   contact_name: string;
   contact_email: string;
   contact_phone?: string;
   address?: string;
-  status: 'active' | 'inactive';
+  city?: string;
+  gst_number?: string;
+  status: 'active' | 'inactive' | 'blocked';
   created_at: string;
 }
 
@@ -263,13 +274,16 @@ export const apiDashboard = (token: string) =>
 /* ─── PRODUCTS ──────────────────────────────────── */
 export const apiProducts = (token: string, params?: {
   search?: string; category?: string; brand?: string;
-  status?: string; page?: number; limit?: number;
+  status?: string; sort?: string; include_stock?: boolean; location_id?: string; page?: number; limit?: number;
 }) => {
   const q = new URLSearchParams();
   if (params?.search) q.set('search', params.search);
   if (params?.category) q.set('category', params.category);
   if (params?.brand) q.set('brand', params.brand);
   if (params?.status) q.set('status', params.status);
+  if (params?.sort) q.set('sort', params.sort);
+  if (params?.include_stock) q.set('include_stock', 'true');
+  if (params?.location_id) q.set('location_id', params.location_id);
   if (params?.page != null) q.set('page', String(params.page));
   if (params?.limit != null) q.set('limit', String(params.limit));
   const qs = q.toString();
@@ -287,7 +301,7 @@ export const apiCreateProduct = (token: string, body: Partial<Product>) =>
 
 export const apiUpdateProduct = (token: string, id: string, body: Partial<Product>) =>
   apiFetch<DataResponse<Product>>(`/products/${id}`, token, {
-    method: 'PATCH',
+    method: 'PUT',
     body: JSON.stringify(body),
   });
 
@@ -334,7 +348,7 @@ export const apiInventoryLowStock = (token: string) =>
   apiFetch<ListResponse<LowStockAlert>>('/inventory/low-stock', token);
 
 export const apiInventoryAdjust = (token: string, body: {
-  product_id: string; location_id: string; quantity: number; note?: string;
+  product_id: string; location_id: string; new_quantity: number; reason: string; notes?: string;
 }) =>
   apiFetch<MessageResponse>('/inventory/adjust', token, {
     method: 'POST',
@@ -342,9 +356,9 @@ export const apiInventoryAdjust = (token: string, body: {
   });
 
 export const apiInventoryAddStock = (token: string, body: {
-  product_id: string; location_id: string; quantity: number; note?: string;
+  product_id: string; quantity_to_add: number; reason: string; notes?: string;
 }) =>
-  apiFetch<MessageResponse>('/inventory/add', token, {
+  apiFetch<MessageResponse>('/inventory/add-stock', token, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -389,26 +403,26 @@ export const apiCreateOrder = (token: string, body: {
   });
 
 export const apiApproveOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/approve`, token, { method: 'POST' });
+  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/approve`, token, { method: 'PATCH' });
 
 export const apiRejectOrder = (token: string, id: string, reason: string) =>
   apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/reject`, token, {
-    method: 'POST',
+    method: 'PATCH',
     body: JSON.stringify({ reason }),
   });
 
 export const apiPackOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/pack`, token, { method: 'POST' });
+  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/pack`, token, { method: 'PATCH' });
 
 export const apiDispatchOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/dispatch`, token, { method: 'POST' });
+  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/dispatch`, token, { method: 'PATCH' });
 
 export const apiConfirmReceive = (token: string, id: string) =>
-  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/receive`, token, { method: 'POST' });
+  apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/confirm-receive`, token, { method: 'PATCH' });
 
 export const apiCancelOrder = (token: string, id: string, reason?: string) =>
   apiFetch<DataResponse<StoreOrder>>(`/orders/${id}/cancel`, token, {
-    method: 'POST',
+    method: 'PATCH',
     body: JSON.stringify({ reason }),
   });
 
@@ -421,7 +435,15 @@ export const apiBulkOrders = (token: string, params?: {
   if (params?.page != null) q.set('page', String(params.page));
   if (params?.limit != null) q.set('limit', String(params.limit));
   const qs = q.toString();
-  return apiFetch<ListResponse<BulkOrder>>(`/bulk-orders${qs ? `?${qs}` : ''}`, token);
+  return apiFetch<ListResponse<BulkOrder> | BulkOrder[]>(`/bulk-orders${qs ? `?${qs}` : ''}`, token).then((r) => {
+    if (Array.isArray(r)) {
+      return {
+        data: r,
+        meta: { total: r.length, page: 1, limit: r.length || 1, pages: 1 },
+      };
+    }
+    return r;
+  });
 };
 
 export const apiCreateBulkOrder = (token: string, body: {
@@ -429,19 +451,23 @@ export const apiCreateBulkOrder = (token: string, body: {
 }) =>
   apiFetch<DataResponse<BulkOrder>>('/bulk-orders', token, {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      client_store_id: body.client_id,
+      warehouse_id: body.warehouse_id,
+      items: body.items,
+    }),
     extraHeaders: { 'X-Idempotency-Key': crypto.randomUUID() },
   });
 
 export const apiPackBulkOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/pack`, token, { method: 'POST' });
+  apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/pack`, token, { method: 'PATCH' });
 
 export const apiDispatchBulkOrder = (token: string, id: string) =>
-  apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/dispatch`, token, { method: 'POST' });
+  apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/dispatch`, token, { method: 'PATCH' });
 
 export const apiCancelBulkOrder = (token: string, id: string, reason?: string) =>
   apiFetch<DataResponse<BulkOrder>>(`/bulk-orders/${id}/cancel`, token, {
-    method: 'POST',
+    method: 'PATCH',
     body: JSON.stringify({ reason }),
   });
 
@@ -507,8 +533,8 @@ export const apiClients = (token: string, params?: { page?: number; limit?: numb
 };
 
 export const apiCreateClient = (token: string, body: {
-  name: string; contact_name: string; contact_email: string;
-  contact_phone?: string; address?: string;
+  name: string; code: string; contact_name: string; contact_email?: string;
+  contact_phone?: string; address?: string; city?: string; gst_number?: string;
 }) =>
   apiFetch<DataResponse<ClientStore>>('/clients', token, {
     method: 'POST',
@@ -521,7 +547,7 @@ export const apiUpdateClient = (token: string, id: string, body: Partial<ClientS
     body: JSON.stringify(body),
   });
 
-export const apiClientStatus = (token: string, id: string, status: 'active' | 'inactive') =>
+export const apiClientStatus = (token: string, id: string, status: 'active' | 'inactive' | 'blocked') =>
   apiFetch<DataResponse<ClientStore>>(`/clients/${id}/status`, token, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
@@ -574,6 +600,127 @@ export const apiCreateTransfer = (token: string, body: {
   apiFetch<DataResponse<Transfer>>('/transfers', token, {
     method: 'POST',
     body: JSON.stringify(body),
+  });
+
+/* ─── STAFF ─────────────────────────────────────── */
+export interface StaffMember {
+  id: string;
+  user_id: string;
+  location_id: string;
+  location_code: string;
+  location_name: string;
+  employee_code: string | null;
+  designation: string | null;
+  joining_date: string | null;
+  working_days_per_week: number;
+  phone: string | null;
+  status: 'active' | 'inactive';
+  email: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  staff_id: string;
+  date: string;
+  check_in_time: string | null;
+  check_out_time: string | null;
+  check_in_lat: number | null;
+  check_in_lng: number | null;
+  check_out_lat: number | null;
+  check_out_lng: number | null;
+  check_in_distance_meters: number | null;
+  check_out_distance_meters: number | null;
+  is_within_geofence: boolean;
+  is_late: boolean;
+  late_by_minutes: number | null;
+  status: 'present' | 'absent' | 'late' | 'half_day' | 'leave';
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceSummary {
+  present: number;
+  absent: number;
+  late: number;
+  half_day: number;
+  leave: number;
+}
+
+export interface Task {
+  id: string;
+  task_code: string;
+  title: string;
+  description: string | null;
+  location_id: string;
+  assigned_to_id: string | null;
+  assigned_by_id: string;
+  assignee_name: string | null;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  due_date: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  completion_note: string | null;
+  related_order_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const apiStaffMembers = (token: string) =>
+  apiFetch<StaffMember[]>('/staff/members', token);
+
+export const apiCreateStaffMember = (token: string, body: {
+  user_id: string; location_code: string; employee_code?: string;
+  designation?: string; joining_date?: string; working_days_per_week?: number; phone?: string;
+}) =>
+  apiFetch<StaffMember>('/staff/members', token, { method: 'POST', body: JSON.stringify(body) });
+
+export const apiStaffAttendance = (token: string, params?: {
+  staff_id?: string; date_from?: string; date_to?: string;
+}) => {
+  const q = new URLSearchParams();
+  if (params?.staff_id) q.set('staff_id', params.staff_id);
+  if (params?.date_from) q.set('date_from', params.date_from);
+  if (params?.date_to) q.set('date_to', params.date_to);
+  const qs = q.toString();
+  return apiFetch<AttendanceRecord[]>(`/staff/attendance${qs ? `?${qs}` : ''}`, token);
+};
+
+export const apiStaffAttendanceSummary = (token: string, params: {
+  staff_id?: string; year?: number; month?: number;
+}) => {
+  const q = new URLSearchParams();
+  if (params.staff_id) q.set('staff_id', params.staff_id);
+  if (params.year) q.set('year', String(params.year));
+  if (params.month) q.set('month', String(params.month));
+  return apiFetch<AttendanceSummary>(`/staff/attendance/summary?${q.toString()}`, token);
+};
+
+export const apiStaffTasks = (token: string, params?: { status?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.status) q.set('status', params.status);
+  const qs = q.toString();
+  return apiFetch<Task[]>(`/staff/tasks${qs ? `?${qs}` : ''}`, token);
+};
+
+export const apiCreateTask = (token: string, body: {
+  title: string; description?: string; assigned_to_staff_id?: string;
+  priority?: 'low' | 'medium' | 'high' | 'urgent'; due_date?: string;
+  related_order_id?: string;
+}) =>
+  apiFetch<Task>('/staff/tasks', token, { method: 'POST', body: JSON.stringify(body) });
+
+export const apiStartTask = (token: string, id: string) =>
+  apiFetch<Task>(`/staff/tasks/${id}/start`, token, { method: 'PATCH' });
+
+export const apiCompleteTask = (token: string, id: string, completion_note?: string) =>
+  apiFetch<Task>(`/staff/tasks/${id}/complete`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ completion_note }),
   });
 
 /* ─── Legacy type aliases ───────────────────────── */

@@ -26,6 +26,7 @@ const navGroups = [
     label: 'Stock',
     items: [
       { label: 'Inventory', href: '/wh/inventory', icon: <LayersIcon /> },
+      { label: 'Transfers', href: '/wh/transfers', icon: <TruckIcon /> },
     ],
   },
   {

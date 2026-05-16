@@ -27,7 +27,7 @@ export const ordersRouter = Router();
 ordersRouter.use(authRequired);
 
 // GET /orders — enhanced with filters
-ordersRouter.get('/', async (req, res, next) => {
+ordersRouter.get('/', rolesAllowed(['superadmin', 'warehouse_manager', 'store_manager']), async (req, res, next) => {
   try {
     const isSuperadmin = req.user?.role === 'superadmin';
     const statusFilter = String(req.query.status ?? '').trim();
@@ -127,7 +127,7 @@ ordersRouter.get('/', async (req, res, next) => {
 });
 
 // GET /orders/:id — full detail with timeline
-ordersRouter.get('/:id', async (req, res, next) => {
+ordersRouter.get('/:id', rolesAllowed(['superadmin', 'warehouse_manager', 'store_manager']), async (req, res, next) => {
   try {
     const id = String(req.params.id);
     const result = await pool.query(
@@ -146,7 +146,32 @@ ordersRouter.get('/:id', async (req, res, next) => {
       return res.status(404).json({ code: 'ORDER_NOT_FOUND', message: 'Order not found' });
     }
 
-    const order = result.rows[0] as { id: string; [key: string]: unknown };
+    const order = result.rows[0] as { id: string; warehouse_id: string; store_id: string; [key: string]: unknown };
+
+    // Enforce location scoping for non-superadmin
+    if (req.user!.role !== 'superadmin') {
+      const actorLocationId = req.user!.location_id;
+      if (!actorLocationId) {
+        return res.status(403).json({ code: 'FORBIDDEN', message: 'User has no assigned location' });
+      }
+      const locRow = await pool.query(
+        `SELECT id, type FROM locations WHERE location_code = $1 OR id::text = $1 LIMIT 1`,
+        [actorLocationId],
+      );
+      const actorLocation = locRow.rows[0];
+      if (!actorLocation) {
+        return res.status(404).json({ code: 'NOT_FOUND', message: 'Location not found' });
+      }
+      if (req.user!.role === 'warehouse_manager') {
+        if (actorLocation.id !== order.warehouse_id) {
+          return res.status(403).json({ code: 'WAREHOUSE_SCOPE_VIOLATION', message: 'Cannot access order from another warehouse' });
+        }
+      } else if (req.user!.role === 'store_manager') {
+        if (actorLocation.id !== order.store_id) {
+          return res.status(403).json({ code: 'STORE_SCOPE_VIOLATION', message: 'Cannot access order from another store' });
+        }
+      }
+    }
 
     // Get timeline from audit_logs
     const timeline = await pool.query(
@@ -203,7 +228,7 @@ ordersRouter.post('/', rolesAllowed(['store_manager']), idempotencyRequired('POS
 
 ordersRouter.patch(
   '/:id/approve',
-  rolesAllowed(['superadmin']),
+  rolesAllowed(['warehouse_manager']),
   idempotencyRequired('PATCH /orders/:id/approve'),
   async (req, res, next) => {
   try {
@@ -225,7 +250,7 @@ ordersRouter.patch(
       entityType: 'store_order',
       entityId: order.id,
       afterValue: { status: order.status, order_id: order.order_id },
-      details: 'Superadmin approved order and reserved stock',
+      details: 'Warehouse manager approved order and reserved stock',
       requestId: req.header('Idempotency-Key') ?? undefined,
     });
     return res.json({ success: true, data: { order_id: order.order_id, status: order.status } });
@@ -234,8 +259,8 @@ ordersRouter.patch(
   }
 });
 
-// PATCH /orders/:id/reject — superadmin only, only from draft
-ordersRouter.patch('/:id/reject', rolesAllowed(['superadmin']), async (req, res, next) => {
+// PATCH /orders/:id/reject — warehouse_manager only, only from draft
+ordersRouter.patch('/:id/reject', rolesAllowed(['warehouse_manager']), async (req, res, next) => {
   try {
     const parsed = cancelSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -252,9 +277,23 @@ ordersRouter.patch('/:id/reject', rolesAllowed(['superadmin']), async (req, res,
       return res.status(404).json({ code: 'ORDER_NOT_FOUND', message: 'Order not found' });
     }
 
-    const order = orderResult.rows[0] as { id: string; status: string; order_id: string };
+    const order = orderResult.rows[0] as { id: string; status: string; order_id: string; warehouse_id: string };
     if (order.status !== 'draft') {
       return res.status(409).json({ code: 'INVALID_STATUS_TRANSITION', message: 'Order can only be rejected from draft status' });
+    }
+
+    // Warehouse scope check
+    const actorLocationId = req.user?.location_id ?? null;
+    if (!actorLocationId) {
+      return res.status(403).json({ code: 'FORBIDDEN', message: 'Manager has no assigned location' });
+    }
+    const locRow = await pool.query(
+      `SELECT id FROM locations WHERE location_code = $1 OR id::text = $1 LIMIT 1`,
+      [actorLocationId],
+    );
+    const actorLocation = locRow.rows[0];
+    if (!actorLocation || actorLocation.id !== order.warehouse_id) {
+      return res.status(403).json({ code: 'WAREHOUSE_SCOPE_VIOLATION', message: 'Cannot reject order from another warehouse' });
     }
 
     await pool.query(
@@ -269,7 +308,7 @@ ordersRouter.patch('/:id/reject', rolesAllowed(['superadmin']), async (req, res,
       entityId: order.id,
       beforeValue: { status: order.status },
       afterValue: { status: 'cancelled', reason: parsed.data.reason },
-      details: `Order rejected: ${parsed.data.reason}`,
+      details: `Warehouse manager rejected order: ${parsed.data.reason}`,
     });
 
     return res.json({ success: true, data: { order_id: order.order_id, status: 'cancelled' } });
@@ -278,8 +317,10 @@ ordersRouter.patch('/:id/reject', rolesAllowed(['superadmin']), async (req, res,
   }
 });
 
-// PATCH /orders/:id/cancel — superadmin only
-ordersRouter.patch('/:id/cancel', rolesAllowed(['superadmin']), async (req, res, next) => {
+// PATCH /orders/:id/cancel — warehouse_manager or store_manager
+// WH: can cancel draft/confirmed/packed from their warehouse
+// Store manager: can cancel draft only from their store
+ordersRouter.patch('/:id/cancel', rolesAllowed(['warehouse_manager', 'store_manager']), async (req, res, next) => {
   try {
     const parsed = cancelSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -299,24 +340,44 @@ ordersRouter.patch('/:id/cancel', rolesAllowed(['superadmin']), async (req, res,
     }
 
     const order = orderResult.rows[0] as {
-      id: string; status: string; order_id: string; warehouse_id: string;
+      id: string; status: string; order_id: string;
+      warehouse_id: string; store_id: string;
       items: Array<{ product_id: string; qty: number }>;
     };
-    const cancellableStatuses = ['draft', 'confirmed', 'packed'];
-    if (!cancellableStatuses.includes(order.status)) {
-      return res.status(409).json({ code: 'INVALID_STATUS_TRANSITION', message: `Cannot cancel order with status: ${order.status}` });
+
+    const actorRole = req.user!.role;
+    const actorLocationId = req.user!.location_id ?? null;
+    if (!actorLocationId) {
+      return res.status(403).json({ code: 'FORBIDDEN', message: 'Manager has no assigned location' });
+    }
+    const locRow = await pool.query(
+      `SELECT id, type FROM locations WHERE location_code = $1 OR id::text = $1 LIMIT 1`,
+      [actorLocationId],
+    );
+    const actorLocation = locRow.rows[0];
+    if (!actorLocation) {
+      return res.status(404).json({ code: 'NOT_FOUND', message: 'Location not found' });
     }
 
-    // Release reserved stock if confirmed or packed
-    if (order.status === 'confirmed' || order.status === 'packed') {
-      const items = Array.isArray(order.items) ? order.items : [];
-      for (const item of items) {
-        await pool.query(
-          `UPDATE inventory SET reserved_stock = GREATEST(0, reserved_stock - $1), updated_at = NOW()
-           WHERE product_id = $2 AND location_id = $3`,
-          [item.qty, item.product_id, order.warehouse_id],
-        );
+    if (actorRole === 'store_manager') {
+      // Store managers can only cancel draft orders from their own store
+      if (order.status !== 'draft') {
+        return res.status(409).json({ code: 'INVALID_STATUS_TRANSITION', message: 'Store managers can only cancel draft orders' });
       }
+      if (actorLocation.id !== order.store_id) {
+        return res.status(403).json({ code: 'STORE_SCOPE_VIOLATION', message: 'Cannot cancel order from another store' });
+      }
+    } else if (actorRole === 'warehouse_manager') {
+      // Warehouse managers can cancel draft/confirmed/packed from their warehouse
+      const cancellableStatuses = ['draft', 'confirmed', 'packed'];
+      if (!cancellableStatuses.includes(order.status)) {
+        return res.status(409).json({ code: 'INVALID_STATUS_TRANSITION', message: `Cannot cancel order with status: ${order.status}` });
+      }
+      if (actorLocation.id !== order.warehouse_id) {
+        return res.status(403).json({ code: 'WAREHOUSE_SCOPE_VIOLATION', message: 'Cannot cancel order from another warehouse' });
+      }
+    } else {
+      return res.status(403).json({ code: 'FORBIDDEN', message: 'Invalid role for cancellation' });
     }
 
     await pool.query(
@@ -331,7 +392,7 @@ ordersRouter.patch('/:id/cancel', rolesAllowed(['superadmin']), async (req, res,
       entityId: order.id,
       beforeValue: { status: order.status },
       afterValue: { status: 'cancelled', reason: parsed.data.reason },
-      details: `Order cancelled: ${parsed.data.reason}`,
+      details: `${actorRole === 'warehouse_manager' ? 'Warehouse manager' : 'Store manager'} cancelled order: ${parsed.data.reason}`,
     });
 
     return res.json({ success: true, data: { order_id: order.order_id, status: 'cancelled' } });
@@ -364,7 +425,7 @@ ordersRouter.patch(
       entityType: 'store_order',
       entityId: order.id,
       afterValue: { status: order.status, order_id: order.order_id },
-      details: 'Warehouse packed order',
+      details: 'Warehouse manager packed order',
       requestId: req.header('Idempotency-Key') ?? undefined,
     });
     return res.json({ success: true, data: { order_id: order.order_id, status: order.status } });
@@ -397,7 +458,7 @@ ordersRouter.patch(
       entityType: 'store_order',
       entityId: order.id,
       afterValue: { status: order.status, order_id: order.order_id },
-      details: 'Warehouse dispatched order',
+      details: 'Warehouse manager dispatched order',
       requestId: req.header('Idempotency-Key') ?? undefined,
     });
     return res.json({ success: true, data: { order_id: order.order_id, status: order.status } });

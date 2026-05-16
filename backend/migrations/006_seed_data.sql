@@ -37,27 +37,27 @@ ON CONFLICT (email) DO NOTHING;
 -- ─── default warehouse manager ───────────────────────────────
 -- Default password: Warehouse@123
 INSERT INTO users (email, name, password_hash, role, location_id, status)
-VALUES (
+SELECT
   'warehouse@yourcompany.com',
   'Warehouse Manager',
   '$2b$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
   'warehouse_manager',
-  'WH01',
+  id,
   'active'
-)
+FROM locations WHERE location_code = 'WH01'
 ON CONFLICT (email) DO NOTHING;
 
 -- ─── default store manager ───────────────────────────────────
 -- Default password: Store@123
 INSERT INTO users (email, name, password_hash, role, location_id, status)
-VALUES (
+SELECT
   'store@yourcompany.com',
   'Store Manager',
   '$2b$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
   'store_manager',
-  'ST01',
+  id,
   'active'
-)
+FROM locations WHERE location_code = 'ST01'
 ON CONFLICT (email) DO NOTHING;
 
 -- ─── sample products ─────────────────────────────────────────
@@ -130,4 +130,17 @@ SELECT
 FROM products p
 CROSS JOIN locations l
 WHERE l.location_code = 'WH01'
-  AND p.deleted_at IS NULL;
+  AND p.deleted_at IS NULL
+  AND (CASE p.sku
+    WHEN 'SKU-TV-001' THEN 25
+    WHEN 'SKU-MN-002' THEN 40
+    WHEN 'SKU-PH-003' THEN 18
+    WHEN 'SKU-LT-004' THEN 12
+    WHEN 'SKU-HP-005' THEN 30
+    WHEN 'SKU-FR-006' THEN 8
+    WHEN 'SKU-PH-007' THEN 15
+    WHEN 'SKU-TB-008' THEN 20
+    WHEN 'SKU-EA-009' THEN 35
+    WHEN 'SKU-LT-010' THEN 10
+    ELSE 0
+  END) > 0;

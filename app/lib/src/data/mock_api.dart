@@ -1,3 +1,4 @@
+import 'dart:developer' as dev;
 import 'dart:io' show Platform;
 
 import 'package:dio/dio.dart';
@@ -6,6 +7,13 @@ import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/models.dart';
+
+// Logs to both debugPrint (debug) and dart:developer log (release).
+// Release logs are visible via: adb logcat -s flutter
+void _apiLog(String message) {
+  dev.log(message, name: 'API');
+  if (kDebugMode) debugPrint('[API] $message');
+}
 
 class MockApi {
   MockApi() : _dio = _buildDio() {
@@ -66,6 +74,29 @@ class MockApi {
     }
 
     return configured;
+  }
+
+  /// Pings the health endpoint and returns a diagnostic string.
+  /// Call this from your debug/settings screen to verify connectivity.
+  Future<String> checkServerReachability() async {
+    final baseUrl = _resolveBaseUrl();
+    final healthUrl = baseUrl.replaceFirst(RegExp(r'/v1$'), '/health');
+    _apiLog('Checking server reachability: $healthUrl');
+    try {
+      final resp = await Dio().get<dynamic>(
+        healthUrl,
+        options: Options(
+          sendTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+          connectTimeout: const Duration(seconds: 5),
+        ),
+      );
+      return 'OK (HTTP ${resp.statusCode}): $baseUrl';
+    } on DioException catch (e) {
+      return 'FAIL [${e.type.name}] ${e.message ?? e.error} → $baseUrl';
+    } catch (e) {
+      return 'FAIL: $e → $baseUrl';
+    }
   }
 
   String _errorMessage(Object error) {
@@ -416,17 +447,21 @@ class MockApi {
     required int quantity,
     required String idempotencyKey,
   }) async {
-    await _dio.post(
-      '/orders',
-      options: _authOptions(session.token, idempotencyKey: idempotencyKey),
-      data: {
-        'store_id': session.locationId,
-        'warehouse_id': warehouseId,
-        'items': [
-          {'product_id': productId, 'qty': quantity},
-        ],
-      },
-    );
+    try {
+      await _dio.post(
+        '/orders',
+        options: _authOptions(session.token, idempotencyKey: idempotencyKey),
+        data: {
+          'store_id': session.locationId,
+          'warehouse_id': warehouseId,
+          'items': [
+            {'product_id': productId, 'qty': quantity},
+          ],
+        },
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
   }
 
   Future<void> transitionOrderOnline({
@@ -443,14 +478,16 @@ class MockApi {
       _ => null,
     };
 
-    if (endpoint == null) {
-      return;
-    }
+    if (endpoint == null) return;
 
-    await _dio.patch(
-      endpoint,
-      options: _authOptions(session.token, idempotencyKey: _uuid.v4()),
-    );
+    try {
+      await _dio.patch(
+        endpoint,
+        options: _authOptions(session.token, idempotencyKey: _uuid.v4()),
+      );
+    } catch (error) {
+      throw Exception(_errorMessage(error));
+    }
   }
 
   // ── Locations ─────────────────────────────────────────────────────────────
@@ -545,8 +582,14 @@ class MockApi {
     required String token,
     required String userId,
   }) async {
+    // Backend does not support DELETE /users/:id.
+    // Use PATCH /users/:id/status with status=inactive to deactivate instead.
     try {
-      await _dio.delete<void>('/users/$userId', options: _authOptions(token));
+      await _dio.patch<void>(
+        '/users/$userId/status',
+        options: _authOptions(token),
+        data: {'status': 'inactive'},
+      );
     } catch (error) {
       throw Exception(_errorMessage(error));
     }

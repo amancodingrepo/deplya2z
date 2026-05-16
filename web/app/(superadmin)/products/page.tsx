@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
-import { ChipFilter } from '../../../components/ui/chip-filter';
 import { PlusIcon } from '../../../components/layout/icons';
 import { getToken } from '../../../lib/auth';
-import { apiProducts as fetchProducts } from '../../../lib/api';
+import { apiProducts, apiUpdateProduct } from '../../../lib/api';
 import type { Product } from '../../../lib/api';
 
 const categories = ['All', 'Electronics', 'Monitors', 'Appliances', 'Laptops', 'Phones', 'Audio', 'Tablets'];
@@ -35,10 +34,17 @@ function ListIcon() {
 }
 
 export default function ProductsPage() {
-  const [category, setCategory] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [view, setView] = useState<'grid' | 'table'>('grid');
-  const [searchQuery] = useState('');
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<'grid' | 'table'>('table');
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const [category, setCategory] = useState('');
+  const [brand, setBrand] = useState('');
+  const [sort, setSort] = useState('created_desc');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState<'present' | 'inactive' | 'discontinued'>('present');
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const [apiProductList, setApiProductList] = useState<Product[]>([]);
   const [apiLoading, setApiLoading] = useState(true);
@@ -67,11 +73,56 @@ export default function ProductsPage() {
 
   const sourceProducts = apiProductList;
 
-  const filtered = sourceProducts.filter((p) => {
-    if (category !== 'All' && p.category !== category) return false;
-    if (statusFilter !== 'all' && p.status !== statusFilter) return false;
-    return true;
-  });
+  const categories = useMemo(() => Array.from(new Set(products.map((p) => p.category).filter(Boolean) as string[])).sort(), [products]);
+  const brands = useMemo(() => Array.from(new Set(products.map((p) => p.brand).filter(Boolean))).sort(), [products]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return products.filter((p) => {
+      if (q) {
+        const hay = `${p.title} ${p.brand} ${p.model ?? ''} ${p.sku}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (status && p.status !== status) return false;
+      if (category && p.category !== category) return false;
+      if (brand && p.brand !== brand) return false;
+      return true;
+    });
+  }, [products, search, status, category, brand]);
+
+  const allVisibleSelected = filtered.length > 0 && filtered.every((p) => selected.has(p.id));
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (allVisibleSelected) filtered.forEach((p) => n.delete(p.id));
+      else filtered.forEach((p) => n.add(p.id));
+      return n;
+    });
+  }
+
+  async function applyBulkStatus() {
+    const token = getToken();
+    if (!token || selected.size === 0) return;
+    setBulkSaving(true);
+    try {
+      for (const id of selected) {
+        await apiUpdateProduct(token, id, { status: bulkStatus });
+      }
+      setSelected(new Set());
+      await loadProducts();
+    } finally {
+      setBulkSaving(false);
+    }
+  }
 
   if (apiError) {
     return (
@@ -84,128 +135,84 @@ export default function ProductsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[12px] text-muted-foreground mb-1">
-            <Link href="/dashboard" className="hover:text-foreground transition-colors">Dashboard</Link>
-            <span className="mx-1.5">·</span>
-            <span className="text-foreground">Products</span>
-          </p>
           <h1 className="text-[20px] font-semibold text-foreground">Products</h1>
-          <p className="text-[13px] text-muted-foreground mt-0.5">Manage your product catalogue · {apiLoading ? '…' : (apiMeta.total || sourceProducts.length)} total</p>
+          <p className="text-[13px] text-muted-foreground mt-0.5">Catalogue management with bulk actions</p>
         </div>
-        <Link href="/products/create">
-          <Button size="sm"><PlusIcon /> Add Product</Button>
-        </Link>
+        <Link href="/products/create"><Button size="sm"><PlusIcon /> Add Product</Button></Link>
       </div>
 
-      {/* Filters + view toggle */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <ChipFilter chips={categories.map(c => ({ value: c, label: c }))} active={category} onChange={setCategory} />
-        <div className="flex items-center gap-2">
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="h-8 rounded-md border border-border bg-surface px-2.5 text-[12px] text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
-          >
-            <option value="all">All statuses</option>
-            <option value="present">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="discontinued">Discontinued</option>
-          </select>
-          <div className="flex rounded-md border border-border overflow-hidden">
-            <button onClick={() => setView('grid')} className={`flex items-center justify-center px-2.5 h-8 transition-colors ${view === 'grid' ? 'bg-primary text-primary-foreground' : 'bg-surface text-muted-foreground hover:bg-surface-raised'}`} aria-label="Grid view">
-              <GridIcon />
-            </button>
-            <button onClick={() => setView('table')} className={`flex items-center justify-center px-2.5 h-8 transition-colors border-l border-border ${view === 'table' ? 'bg-primary text-primary-foreground' : 'bg-surface text-muted-foreground hover:bg-surface-raised'}`} aria-label="Table view">
-              <ListIcon />
-            </button>
-          </div>
+      <div className="flex flex-wrap gap-2 items-center">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title, brand, model, SKU..." className="h-9 min-w-72 rounded-md border border-border bg-surface px-3 text-sm" />
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className="h-9 rounded-md border border-border bg-surface px-3 text-sm">
+          <option value="">All statuses</option><option value="present">Present</option><option value="inactive">Inactive</option><option value="discontinued">Discontinued</option>
+        </select>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className="h-9 rounded-md border border-border bg-surface px-3 text-sm">
+          <option value="">All categories</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={brand} onChange={(e) => setBrand(e.target.value)} className="h-9 rounded-md border border-border bg-surface px-3 text-sm">
+          <option value="">All brands</option>{brands.map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <select value={sort} onChange={(e) => setSort(e.target.value)} className="h-9 rounded-md border border-border bg-surface px-3 text-sm">
+          <option value="created_desc">Newest</option><option value="title_asc">Name A-Z</option><option value="title_desc">Name Z-A</option><option value="sku_asc">SKU</option>
+        </select>
+        <div className="ml-auto flex border border-border rounded-md overflow-hidden">
+          <button onClick={() => setView('grid')} className={`h-9 px-3 text-sm ${view === 'grid' ? 'bg-primary text-primary-foreground' : 'bg-surface'}`}>Grid</button>
+          <button onClick={() => setView('table')} className={`h-9 px-3 text-sm border-l border-border ${view === 'table' ? 'bg-primary text-primary-foreground' : 'bg-surface'}`}>Table</button>
         </div>
       </div>
 
-      {/* Empty */}
-      {filtered.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-2">
-          <p className="text-[14px] font-medium">No products match the filter</p>
-          <p className="text-[12px]">Try clearing the filters above</p>
-        </div>
-      )}
+      <div className="flex items-center gap-2">
+        <button onClick={toggleSelectAllVisible} className="h-8 rounded-md border border-border bg-surface px-3 text-xs">{allVisibleSelected ? 'Unselect Visible' : 'Select Visible'}</button>
+        <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+        <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value as 'present' | 'inactive' | 'discontinued')} className="h-8 rounded-md border border-border bg-surface px-2 text-xs">
+          <option value="present">Set Present</option><option value="inactive">Set Inactive</option><option value="discontinued">Set Discontinued</option>
+        </select>
+        <Button size="sm" onClick={applyBulkStatus} disabled={selected.size === 0 || bulkSaving}>{bulkSaving ? 'Applying...' : 'Apply Bulk Status'}</Button>
+      </div>
 
-      {/* Grid view — simple: image, title, short name */}
-      {view === 'grid' && filtered.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      {view === 'table' ? (
+        <div className="rounded-xl border border-border bg-surface overflow-hidden">
+          <table className="w-full text-[13px]">
+            <thead><tr className="border-b border-border bg-surface-raised"><th className="px-3 py-2" /><th className="px-3 py-2 text-left">Product</th><th className="px-3 py-2 text-left">SKU</th><th className="px-3 py-2 text-left">Brand</th><th className="px-3 py-2 text-left">Category</th><th className="px-3 py-2 text-right">Stock</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-right">Action</th></tr></thead>
+            <tbody>
+              {filtered.map((p) => (
+                <tr key={p.id} className="border-b border-border/70">
+                  <td className="px-3 py-2"><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)} /></td>
+                  <td className="px-3 py-2 font-medium">{p.title}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{p.sku}</td>
+                  <td className="px-3 py-2">{p.brand}</td>
+                  <td className="px-3 py-2">{p.category ?? '-'}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{p.available_stock ?? '-'}</td>
+                  <td className="px-3 py-2"><Badge variant={p.status === 'present' ? 'success' : p.status === 'inactive' ? 'default' : 'destructive'}>{p.status}</Badge></td>
+                  <td className="px-3 py-2 text-right"><Link href={`/products/${p.id}/edit`} className="text-xs text-primary hover:underline">Edit</Link></td>
+                </tr>
+              ))}
+              {!loading && filtered.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">No products found</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {filtered.map((p) => (
-            <Link key={p.id} href={`/products/${p.id}/edit`} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-surface hover:border-primary/50 hover:shadow-sm transition-all">
-              <div className="relative aspect-square overflow-hidden bg-surface-raised">
-                <Image src={p.image ?? 'https://placehold.co/400x400/1a1a2e/4f8ef7?text=Product'} alt={p.title} fill className="object-cover transition-transform duration-300 group-hover:scale-105" unoptimized />
-                <span className={`absolute top-2 right-2 size-2.5 rounded-full ring-2 ring-surface ${statusDot[p.status]}`} />
+            <div key={p.id} className="rounded-lg border border-border bg-surface overflow-hidden">
+              <div className="relative aspect-square bg-surface-raised">
+                <Image src={p.image ?? 'https://placehold.co/400x400'} alt={p.title} fill className="object-cover" unoptimized />
               </div>
-              <div className="flex flex-col gap-0.5 p-3">
-                <p className="text-[13px] font-semibold text-foreground leading-tight line-clamp-2">{p.title}</p>
-                <p className="text-[11px] text-muted-foreground">{p.shortName}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">{p.brand} · {p.category}</p>
+              <div className="p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)} />
+                  <Badge variant={p.status === 'present' ? 'success' : p.status === 'inactive' ? 'default' : 'destructive'}>{p.status}</Badge>
+                </div>
+                <p className="text-sm font-semibold mt-2 line-clamp-2">{p.title}</p>
+                <p className="text-xs text-muted-foreground">{p.sku}</p>
+                <Link href={`/products/${p.id}/edit`} className="text-xs text-primary hover:underline mt-2 inline-block">Edit</Link>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
-
-      {/* Table view — full detail */}
-      {view === 'table' && filtered.length > 0 && (
-        <div className="rounded-xl border border-border bg-surface overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-border bg-surface-raised">
-                  {['Product', 'SKU', 'Brand', 'Category', 'Model', 'Color', 'Status', ''].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => (
-                  <tr key={p.id} className="border-b border-border last:border-0 hover:bg-surface-raised transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="relative size-9 flex-shrink-0 overflow-hidden rounded-md bg-surface-raised">
-                          <Image src={p.image ?? 'https://placehold.co/400x400/1a1a2e/4f8ef7?text=Product'} alt={p.title} fill className="object-cover" unoptimized />
-                        </div>
-                        <div>
-                          <p className="font-semibold text-foreground leading-tight">{p.title}</p>
-                          <p className="text-[11px] text-muted-foreground">{p.shortName}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[12px] text-muted-foreground whitespace-nowrap">{p.sku}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.brand}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.category}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.model}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.color}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={statusBadge[p.status]}>{statusLabel[p.status]}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link href={`/products/${p.id}/edit`}>
-                        <Button size="sm" variant="outline" className="h-7 px-3 text-[11px]">Edit</Button>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between text-[12px] text-muted-foreground">
-        <span>Showing {filtered.length} of {sourceProducts.length} products</span>
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm" disabled>Previous</Button>
-          <Button variant="outline" size="sm">Next</Button>
-        </div>
-      </div>
     </div>
   );
 }

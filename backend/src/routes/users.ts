@@ -10,7 +10,7 @@ const createUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(2),
   password: z.string().min(4),
-  role: z.enum(['superadmin', 'warehouse_manager', 'store_manager']),
+  role: z.enum(['superadmin', 'warehouse_manager', 'store_manager', 'staff']),
   location_id: z.string().min(2).nullable().optional(),
   status: z.enum(['active', 'inactive', 'blocked']).optional(),
 });
@@ -18,14 +18,15 @@ const createUserSchema = z.object({
 const updateUserSchema = z.object({
   name: z.string().min(2).optional(),
   password: z.string().min(4).optional(),
-  role: z.enum(['superadmin', 'warehouse_manager', 'store_manager']).optional(),
+  role: z.enum(['superadmin', 'warehouse_manager', 'store_manager', 'staff']).optional(),
   location_id: z.string().min(2).nullable().optional(),
   status: z.enum(['active', 'inactive', 'blocked']).optional(),
 });
 
 export const usersRouter = Router();
-usersRouter.use(authRequired, rolesAllowed(['superadmin', 'warehouse_manager']));
+usersRouter.use(authRequired, rolesAllowed(['superadmin', 'warehouse_manager', 'store_manager']));
 
+// GET /users — list users (scoped to role/location)
 usersRouter.get('/', async (req, res, next) => {
   try {
     const role = String(req.query.role ?? '').trim();
@@ -44,7 +45,8 @@ usersRouter.get('/', async (req, res, next) => {
   }
 });
 
-usersRouter.post('/', rolesAllowed(['superadmin']), async (req, res, next) => {
+// POST /users — create user (superadmin: any; managers: staff only, same location)
+usersRouter.post('/', rolesAllowed(['superadmin', 'warehouse_manager', 'store_manager']), async (req, res, next) => {
   try {
     const parsed = createUserSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -84,6 +86,7 @@ usersRouter.post('/', rolesAllowed(['superadmin']), async (req, res, next) => {
   }
 });
 
+// PUT /users/:id — full update (superadmin only)
 usersRouter.put('/:id', rolesAllowed(['superadmin']), async (req, res, next) => {
   try {
     const parsed = updateUserSchema.safeParse(req.body);
@@ -124,19 +127,21 @@ usersRouter.put('/:id', rolesAllowed(['superadmin']), async (req, res, next) => 
   }
 });
 
-usersRouter.patch('/:id', rolesAllowed(['superadmin']), async (req, res, next) => {
+// PATCH /users/:id — partial update (superadmin: any; managers: status only for staff in their location)
+usersRouter.patch('/:id', rolesAllowed(['superadmin', 'warehouse_manager', 'store_manager']), async (req, res, next) => {
   try {
     const parsed = updateUserSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
         code: 'INVALID_PAYLOAD',
-        message: 'Request body validation failed',
+        message: 'Validation failed',
         details: parsed.error.flatten(),
       });
     }
 
     const updated = await updateUser({
       actorRole: req.user!.role,
+      actorLocationCode: req.user!.location_id,
       id: String(req.params.id),
       name: parsed.data.name,
       password: parsed.data.password,
@@ -168,19 +173,21 @@ const statusSchema = z.object({
   status: z.enum(['active', 'inactive', 'blocked']),
 });
 
-usersRouter.patch('/:id/status', rolesAllowed(['superadmin']), async (req, res, next) => {
+// PATCH /users/:id/status — change status (superadmin: any; managers: staff in their location)
+usersRouter.patch('/:id/status', rolesAllowed(['superadmin', 'warehouse_manager', 'store_manager']), async (req, res, next) => {
   try {
     const parsed = statusSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
         code: 'INVALID_PAYLOAD',
-        message: 'Request body validation failed',
+        message: 'Validation failed',
         details: parsed.error.flatten(),
       });
     }
 
     const updated = await updateUser({
       actorRole: req.user!.role,
+      actorLocationCode: req.user!.location_id,
       id: String(req.params.id),
       status: parsed.data.status,
     });

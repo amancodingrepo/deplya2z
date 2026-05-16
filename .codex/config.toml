@@ -1,0 +1,7 @@
+[mcp_servers.skillgod]
+args = ['C:\amany\skillgod\engine\mcp_server.py']
+command = 'C:\Python313\python.exe'
+
+[mcp_servers.skillgod.env]
+SKILLGOD_PROJECT = "A2z"
+SKILLGOD_ROOT = 'C:\amany\skillgod'

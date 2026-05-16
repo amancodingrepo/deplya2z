@@ -1,4 +1,4 @@
-export type UserRole = 'superadmin' | 'warehouse_manager' | 'store_manager';
+export type UserRole = 'superadmin' | 'warehouse_manager' | 'store_manager' | 'staff';
 export type UserStatus = 'active' | 'inactive' | 'blocked';
 
 export type OrderStatus =

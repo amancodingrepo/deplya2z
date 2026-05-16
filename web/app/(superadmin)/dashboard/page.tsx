@@ -93,6 +93,9 @@ export default function SuperadminDashboard() {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   const [dashData, setDashData] = useState<Record<string, unknown> | null>(null);
+  const [pendingOrders, setPendingOrders] = useState<StoreOrder[]>([]);
+  const [lowStockLive, setLowStockLive] = useState<Array<{ sku: string; product_title: string; location_code: string; available: number; threshold: number }>>([]);
+  const [activity, setActivity] = useState<Array<{ id: string; actor: string; action: string; entity: string; time: string; role?: string; type?: string }>>([]);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);

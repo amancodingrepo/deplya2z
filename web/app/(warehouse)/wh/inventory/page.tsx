@@ -9,7 +9,7 @@ import { Dialog } from '../../../../components/ui/dialog';
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell, TableEmpty } from '../../../../components/ui/table';
 import { SearchIcon } from '../../../../components/layout/icons';
 import { getToken, getUser } from '../../../../lib/auth';
-import { apiInventory, apiInventoryAdjust } from '../../../../lib/api';
+import { apiCreateProduct, apiInventory, apiInventoryAddStock } from '../../../../lib/api';
 import type { InventoryRow } from '../../../../lib/api';
 
 function stockBadge(available: number, threshold: number) {
@@ -34,6 +34,15 @@ export default function WarehouseInventoryPage() {
   const [adjustQty, setAdjustQty] = useState('');
   const [adjustNote, setAdjustNote] = useState('');
   const [adjusting, setAdjusting] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newSku, setNewSku] = useState('');
+  const [newTitle, setNewTitle] = useState('');
+  const [newBrand, setNewBrand] = useState('');
+  const [newCategory, setNewCategory] = useState('');
+  const [newModel, setNewModel] = useState('');
+  const [newColor, setNewColor] = useState('');
+  const [newQty, setNewQty] = useState('0');
 
   const loadInventory = useCallback(async () => {
     const token = getToken();
@@ -60,11 +69,12 @@ export default function WarehouseInventoryPage() {
     if (isNaN(qty)) return;
     setAdjusting(true);
     try {
-      await apiInventoryAdjust(token, {
+      if (qty <= 0) return;
+      await apiInventoryAddStock(token, {
         product_id: adjustModal.item.product_id,
-        location_id: adjustModal.item.location_id || user?.location_id || '',
-        quantity: qty,
-        note: adjustNote || undefined,
+        quantity_to_add: qty,
+        reason: adjustNote?.trim() || 'Manual stock add',
+        notes: adjustNote?.trim() || undefined,
       });
       setRefreshKey(k => k + 1);
     } catch { /* ignore */ } finally {
@@ -72,6 +82,38 @@ export default function WarehouseInventoryPage() {
       setAdjustModal(null);
       setAdjustQty('');
       setAdjustNote('');
+    }
+  }
+
+  async function submitCreate() {
+    const token = getToken();
+    if (!token) return;
+    const qty = parseInt(newQty, 10);
+    if (!newSku.trim() || !newTitle.trim() || !newBrand.trim() || isNaN(qty) || qty < 0) return;
+    setCreating(true);
+    try {
+      await apiCreateProduct(token, {
+        sku: newSku.trim(),
+        title: newTitle.trim(),
+        brand: newBrand.trim(),
+        category: newCategory.trim() || 'General',
+        model: newModel.trim() || undefined,
+        color: newColor.trim() || undefined,
+        status: 'present',
+        initial_stock: qty,
+        initial_stock_reason: 'Initial stock from warehouse web',
+      } as any);
+      setCreateOpen(false);
+      setNewSku('');
+      setNewTitle('');
+      setNewBrand('');
+      setNewCategory('');
+      setNewModel('');
+      setNewColor('');
+      setNewQty('0');
+      setRefreshKey((k) => k + 1);
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -109,6 +151,7 @@ export default function WarehouseInventoryPage() {
           <option value="low">Low Stock</option>
           <option value="out">Out of Stock</option>
         </select>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>Add Item</Button>
       </div>
 
       <Card>
@@ -162,19 +205,19 @@ export default function WarehouseInventoryPage() {
         open={adjustModal !== null}
         onClose={() => setAdjustModal(null)}
         title={`Adjust Stock — ${adjustModal?.item.product_title ?? ''}`}
-        description="Enter a positive number to add stock or negative to deduct. This creates an audit trail."
+        description="Enter quantity to add. This creates an audit trail."
         confirmLabel={adjusting ? 'Saving…' : 'Apply Adjustment'}
         confirmVariant="primary"
         onConfirm={submitAdjust}
       >
         <div className="pt-2 flex flex-col gap-3">
           <div>
-            <label className="block text-[12px] font-medium text-foreground mb-1.5">Quantity change <span className="text-destructive">*</span></label>
+            <label className="block text-[12px] font-medium text-foreground mb-1.5">Quantity to add <span className="text-destructive">*</span></label>
             <input
               type="number"
               value={adjustQty}
               onChange={e => setAdjustQty(e.target.value)}
-              placeholder="e.g. +10 or -3"
+              placeholder="e.g. 10"
               className="h-9 w-full rounded-md border border-border bg-surface px-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
@@ -193,6 +236,26 @@ export default function WarehouseInventoryPage() {
               Current: <span className="font-semibold text-foreground">{adjustModal.item.available}</span> available · {adjustModal.item.reserved} reserved
             </p>
           )}
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Add Inventory Item"
+        description="Create a new product and add initial stock to this warehouse."
+        confirmLabel={creating ? 'Creating...' : 'Create Item'}
+        confirmVariant="primary"
+        onConfirm={submitCreate}
+      >
+        <div className="pt-2 grid grid-cols-1 gap-3">
+          <input value={newSku} onChange={(e) => setNewSku(e.target.value)} placeholder="SKU *" className="h-9 rounded-md border border-border bg-surface px-3 text-[13px]" />
+          <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Product title *" className="h-9 rounded-md border border-border bg-surface px-3 text-[13px]" />
+          <input value={newBrand} onChange={(e) => setNewBrand(e.target.value)} placeholder="Brand *" className="h-9 rounded-md border border-border bg-surface px-3 text-[13px]" />
+          <input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="Category" className="h-9 rounded-md border border-border bg-surface px-3 text-[13px]" />
+          <input value={newModel} onChange={(e) => setNewModel(e.target.value)} placeholder="Model (optional)" className="h-9 rounded-md border border-border bg-surface px-3 text-[13px]" />
+          <input value={newColor} onChange={(e) => setNewColor(e.target.value)} placeholder="Color (optional)" className="h-9 rounded-md border border-border bg-surface px-3 text-[13px]" />
+          <input type="number" min={0} value={newQty} onChange={(e) => setNewQty(e.target.value)} placeholder="Initial stock" className="h-9 rounded-md border border-border bg-surface px-3 text-[13px]" />
         </div>
       </Dialog>
     </div>

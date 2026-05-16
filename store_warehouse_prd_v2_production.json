@@ -18,7 +18,7 @@
   "business_model": {
     "primary_use_case_1": "Internal store inventory refill (stores request, warehouse fulfills)",
     "primary_use_case_2": "Bulk supply to third-party stores (admin creates, warehouse fulfills)",
-    "target_users": ["Superadmin", "Warehouse Manager", "Store Manager"],
+    "target_users": ["Superadmin", "Warehouse Manager", "Store Manager", "Staff"],
     "excluded_from_mvp": ["Payroll/Salary calculation", "Customer CRM", "AI forecasting", "Supplier purchase module"]
   },
 
@@ -52,11 +52,342 @@
 
   "roles_and_permissions": {
     "superadmin": {
-      "description": "Full system access across all locations, users, products, orders, and reports.",
+      "description": "Watches everything. Creates accounts. Manages roles. Does NOT touch operations. Sole job: see the full picture + manage who has access.",
       "visibility": {
         "data_scope": "All stores, all warehouses, all users, all orders",
-        "dashboard": "Global dashboard with all metrics"
+        "dashboard": "Global KPIs across all warehouses and stores simultaneously, live order pipeline, inventory health, staff attendance, recent activity feed, low stock alerts, revenue/volume charts, orders over time, top products, warehouse utilization, store restock frequency"
       },
+      "permissions": {
+        "dashboard": [
+          "Global analytics dashboard with all 6 charts",
+          "Live order pipeline — how many at each stage right now",
+          "Inventory health across all locations",
+          "Staff attendance summary across all locations today",
+          "Recent activity feed — every action by every user",
+          "Low stock alerts across all locations",
+          "Revenue / volume charts (if applicable)",
+          "Orders over time — all locations, all types",
+          "Top products by volume",
+          "Warehouse utilization comparison",
+          "Store restock frequency"
+        ],
+        "user_and_account_management": [
+          "Create user accounts for any role (superadmin, warehouse manager, store manager, staff)",
+          "Edit user details — name, email, phone",
+          "Change user role",
+          "Assign or reassign user to a location",
+          "Activate, deactivate, or block any account",
+          "Reset any user's password",
+          "Create staff IDs (employee codes) — EMP-001 format",
+          "View all staff across all locations"
+        ],
+        "role_management": [
+          "View all roles and their permissions",
+          "Assign role to any user",
+          "Reassign a warehouse manager to a different warehouse",
+          "Reassign a store manager to a different store",
+          "Transfer staff between locations"
+        ],
+        "locations": [
+          "Create new warehouses",
+          "Create new stores",
+          "Set geofence coordinates and radius per location",
+          "Assign location codes (WH01, ST01)",
+          "Activate or deactivate locations"
+        ],
+        "third_party_clients": [
+          "Create and manage bulk order clients",
+          "View client order history",
+          "Block or activate clients"
+        ],
+        "analytics_read_only": [
+          "All 6 charts — orders, inventory, products, stock flow, status mix, store comparison",
+          "Date range selectors",
+          "Period-over-period comparison",
+          "Export reports to CSV"
+        ],
+        "audit_log": [
+          "Full history of every action by every user",
+          "Filter by role, user, action, date",
+          "Before/after JSON diff",
+          "Immutable — cannot edit"
+        ],
+        "products": [
+          "View all products",
+          "Create product",
+          "Edit product (title, brand, category, model, color, status, custom_style)",
+          "Delete product (soft delete to preserve history)"
+        ],
+        "inventory": [
+          "View inventory across all locations",
+          "View stock movements (full history)",
+          "Manual stock adjustment (with reason, logged)",
+          "View reserved stock tracking"
+        ],
+        "store_orders": [
+          "View all store order requests",
+          "Cancel orders (with reason)",
+          "View store order history"
+        ],
+        "bulk_orders": [
+          "Create bulk order for any third-party client",
+          "Select client store and products",
+          "View all bulk orders",
+          "Cancel bulk orders (with reason)",
+          "View bulk order history"
+        ],
+        "warehouse_operations": [
+          "View pending warehouse tasks",
+          "Override or reassign warehouse tasks"
+        ],
+        "reports": [
+          "View all reports",
+          "Export inventory reports",
+          "Export order reports",
+          "View audit trail"
+        ],
+        "system": [
+          "View system health",
+          "View error logs",
+          "Manage notification settings"
+        ]
+      },
+      "ui_sections": [
+        "Global Analytics Dashboard",
+        "Products",
+        "Inventory (all locations)",
+        "Store Orders (all pending + history)",
+        "Bulk Orders (all pending + history)",
+        "Users & Roles",
+        "Locations",
+        "Third-Party Clients",
+        "Reports & Analytics",
+        "Audit Logs",
+        "Settings"
+      ],
+      "cannot_do": [
+        "Approve or reject store orders",
+        "Create store orders",
+        "Pack or dispatch orders",
+        "Confirm receipt of orders",
+        "Add stock to warehouse",
+        "Create products (except as above)",
+        "Create tasks for staff",
+        "Override attendance",
+        "Bypass state machine",
+        "Edit orders after dispatch",
+        "Modify audit logs"
+      ]
+    },
+
+    "warehouse_manager": {
+      "description": "Owns the warehouse completely. Approves incoming store order requests. Fulfills them. Manages their people.",
+      "visibility": {
+        "data_scope": "Only their assigned warehouse(s) + pending orders for their warehouse",
+        "dashboard": "Pack queue, dispatch queue, pending approvals, low stock in warehouse, today's staff attendance, dispatched today count, KPIs"
+      },
+      "permissions": {
+        "dashboard": [
+          "Pack queue — confirmed orders ready to pick",
+          "Dispatch queue — packed orders ready to ship",
+          "Pending approvals — store order requests waiting",
+          "Low stock in their warehouse",
+          "Today's staff attendance summary",
+          "Dispatched today count",
+          "KPIs: to approve, to pack, to dispatch, low stock"
+        ],
+        "store_order_approval": [
+          "View all pending store order requests from all stores (assigned to their warehouse)",
+          "View order details — which store, which products, quantities",
+          "Check stock availability per item",
+          "Approve order — reserves stock, notifies store manager",
+          "Reject order — with required reason, notifies store manager",
+          "View all orders by status for their warehouse",
+          "Cancel orders before dispatch"
+        ],
+        "order_fulfillment": [
+          "Mark order as packed — with item checklist",
+          "Mark order as dispatched — with optional notes",
+          "View dispatch history"
+        ],
+        "bulk_orders": [
+          "View bulk orders assigned to their warehouse",
+          "Mark bulk order as packed",
+          "Mark bulk order as dispatched"
+        ],
+        "inventory_warehouse": [
+          "View all products and stock levels",
+          "Add stock — new shipment received",
+          "View stock movements history",
+          "Low stock monitoring"
+        ],
+        "products": [
+          "View full product catalogue (all products, search + filter)",
+          "Create new product — with image upload",
+          "Set initial stock at their warehouse on creation"
+        ],
+        "staff_management": [
+          "Create staff account for new staff member (their warehouse)",
+          "Generate employee code (EMP-WH01-001 format)",
+          "Set designation, joining date, working days",
+          "View all staff at their warehouse",
+          "Today's attendance overview — who is present, late, absent",
+          "View any staff member's attendance history",
+          "Override attendance with reason",
+          "Monthly attendance report",
+          "Create and assign tasks to their staff",
+          "Set task priority and due date",
+          "Link task to an order",
+          "Monitor task progress",
+          "Cancel tasks",
+          "Deactivate staff accounts"
+        ],
+        "reports": [
+          "View warehouse inventory report",
+          "View stock movement report",
+          "View order fulfillment report (pending orders, packed, dispatched)"
+        ],
+        "settings": [
+          "Notifications",
+          "Offline queue status",
+          "Logout"
+        ]
+      },
+      "ui_sections": [
+        "Warehouse Operations Dashboard",
+        "Pending Approvals",
+        "Pack Queue",
+        "Dispatch Queue",
+        "Bulk Orders",
+        "Inventory (warehouse only)",
+        "Products (view + create)",
+        "Staff Management",
+        "Reports",
+        "Settings"
+      ],
+      "cannot_do": [
+        "See other warehouse's data",
+        "See store inventory",
+        "See store orders they did not fulfill",
+        "Create bulk orders for clients",
+        "Manage locations or clients",
+        "View audit log",
+        "View analytics",
+        "Change roles or permissions",
+        "Edit or delete products (create only)"
+      ]
+    },
+
+    "store_manager": {
+      "description": "Owns the store completely. Creates restock requests. Confirms what arrives. Manages their people.",
+      "visibility": {
+        "data_scope": "Only their store's data, their store's orders, their store's inventory",
+        "dashboard": "Action required banner, pending orders, arriving soon, inventory health, staff attendance, recent orders, low stock, quick restock CTA"
+      },
+      "permissions": {
+        "dashboard": [
+          "Action required banner when dispatched orders need confirmation",
+          "Pending orders count",
+          "Arriving soon count",
+          "Inventory health",
+          "Today's staff attendance summary",
+          "Recent orders list",
+          "Low stock items for their store",
+          "Quick restock CTA"
+        ],
+        "store_orders": [
+          "Create order request — select products from full catalogue, set quantities",
+          "See warehouse available stock before requesting",
+          "View all their store's orders (own store only)",
+          "Cancel draft orders",
+          "Confirm receipt of dispatched orders — full item checklist",
+          "Store inventory auto-updates on confirmation"
+        ],
+        "inventory_store": [
+          "View their store's inventory only (available, reserved, total)",
+          "Low stock indicators",
+          "Request More shortcut per product"
+        ],
+        "staff_management": [
+          "Create staff account for new staff member (their store)",
+          "Generate employee code (EMP-ST01-001 format)",
+          "Set designation, joining date, working days",
+          "View all staff at their store",
+          "Today's attendance overview",
+          "View any staff member's attendance history",
+          "Override attendance with reason",
+          "Monthly attendance report",
+          "Create and assign tasks to their staff",
+          "Set task priority and due date",
+          "Monitor task progress",
+          "Cancel tasks",
+          "Deactivate staff accounts"
+        ],
+        "settings": [
+          "Notifications",
+          "Logout"
+        ]
+      },
+      "ui_sections": [
+        "Store Operations Dashboard",
+        "Create Order Request",
+        "My Orders (pending + completed)",
+        "Inventory (store only)",
+        "Staff Management",
+        "Settings"
+      ],
+      "cannot_do": [
+        "See other stores' data",
+        "See warehouse inventory",
+        "Pack or dispatch orders",
+        "Add stock manually",
+        "Create or edit products",
+        "Create bulk orders",
+        "Manage locations or clients",
+        "View analytics or audit log",
+        "Change roles or permissions"
+      ]
+    },
+
+    "staff": {
+      "description": "Operational staff at warehouse or store. Check-in/check-out, complete assigned tasks.",
+      "visibility": {
+        "data_scope": "Self only — their attendance, assigned tasks",
+        "dashboard": "Today's tasks, check-in status, attendance summary"
+      },
+      "permissions": {
+        "attendance": [
+          "Check-in / check-out",
+          "View own attendance history",
+          "View today's attendance status"
+        ],
+        "tasks": [
+          "View assigned tasks",
+          "Complete tasks",
+          "Update task progress",
+          "View task details and priority"
+        ],
+        "settings": [
+          "Profile view",
+          "Logout"
+        ]
+      },
+      "ui_sections": [
+        "Staff Dashboard",
+        "Attendance Check-in/out",
+        "My Tasks",
+        "Profile"
+      ],
+      "cannot_do": [
+        "View inventory",
+        "View orders",
+        "Create orders",
+        "Manage other users",
+        "View reports",
+        "Change settings beyond profile"
+      ]
+    }
+  },
       "permissions": {
         "products": [
           "View all products",
@@ -943,12 +1274,12 @@
       "5. Store Manager: Reviews order summary, confirms submission",
       "6. System: Creates order with status='draft', generates order_id (e.g., ORD-ST01-20260412-0001)",
       "7. System: Audit log created (store_manager created order)",
-      "8. Superadmin: Receives notification 'New order request from Store 01'",
-      "9. Superadmin: Reviews order in web dashboard",
-      "10. Superadmin: Clicks 'Approve', confirms",
+      "8. Warehouse Manager: Receives notification 'New order request from Store 01'",
+      "9. Warehouse Manager: Reviews order in dashboard",
+      "10. Warehouse Manager: Clicks 'Approve', confirms (checks stock availability)",
       "11. System: Status → 'confirmed', stock reserved (available_stock ↓, reserved_stock ↑)",
       "12. System: Creates stock_movement (type='order_reserved')",
-      "13. System: Warehouse Manager notified 'Order ORD-ST01-20260412-0001 ready to pack'",
+      "13. System: Warehouse Manager notified 'Order ORD-ST01-20260412-0001 ready to pack' (same user)",
       "14. Warehouse Manager: Opens app, sees order in 'Dispatch Queue'",
       "15. Warehouse Manager: Scans product barcodes, confirms items match",
       "16. Warehouse Manager: Clicks 'Mark as Packed', enters dispatch notes (optional)",

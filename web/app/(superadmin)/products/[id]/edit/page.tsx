@@ -44,15 +44,10 @@ const tagOptions = [
 ];
 
 const statusBadge: Record<string, 'success' | 'default' | 'destructive'> = {
-  present: 'success',
-  inactive: 'default',
-  discontinued: 'destructive',
+  present: 'success', inactive: 'default', discontinued: 'destructive',
 };
-
 const statusLabel: Record<string, string> = {
-  present: 'Active',
-  inactive: 'Inactive',
-  discontinued: 'Discontinued',
+  present: 'Active', inactive: 'Inactive', discontinued: 'Discontinued',
 };
 
 function FieldRow({ label, value }: { label: string; value: string }) {
@@ -208,7 +203,7 @@ export default function ProductEditPage() {
   const displayImage = imagePreview ?? product.image ?? null;
 
   return (
-    <div className="flex flex-col gap-5">
+    <form onSubmit={handleSave} className="flex flex-col gap-5">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -225,62 +220,29 @@ export default function ProductEditPage() {
         <Badge variant={statusBadge[status]} dot>{statusLabel[status]}</Badge>
       </div>
 
+      {saveError && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
+          {saveError}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Left: form */}
         <div className="flex flex-col gap-4 lg:col-span-2">
           <Card>
             <CardHeader><CardTitle>Basic Information</CardTitle></CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <Input
-                label="Product Title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Samsung 55″ QLED TV"
-                required
-              />
-              <Input
-                label="Short Name"
-                value={shortName}
-                onChange={(e) => setShortName(e.target.value)}
-                placeholder="e.g. Samsung TV 55"
-                hint="Used in compact views and order lists"
-                required
-              />
+              <Input label="Product Title" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Samsung 55″ QLED TV" required />
+              <Input label="Short Name" value={shortName} onChange={e => setShortName(e.target.value)} placeholder="e.g. Samsung TV 55" hint="Used in compact views and order lists" required />
               <div className="grid grid-cols-2 gap-4">
-                <Input
-                  label="Brand"
-                  value={brand}
-                  onChange={(e) => setBrand(e.target.value)}
-                  placeholder="e.g. Samsung"
-                  required
-                />
-                <Input
-                  label="Vendor / Supplier"
-                  value={vendor}
-                  onChange={(e) => setVendor(e.target.value)}
-                  placeholder="e.g. Samsung Electronics"
-                />
+                <Input label="Brand" value={brand} onChange={e => setBrand(e.target.value)} placeholder="e.g. Samsung" required />
+                <Input label="Vendor / Supplier" value={vendor} onChange={e => setVendor(e.target.value)} placeholder="e.g. Samsung Electronics" />
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <Input
-                  label="Model"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="e.g. QN55Q80C"
-                />
-                <Input
-                  label="Color / Finish"
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  placeholder="e.g. Black"
-                />
+                <Input label="Model" value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. QN55Q80C" />
+                <Input label="Color / Finish" value={color} onChange={e => setColor(e.target.value)} placeholder="e.g. Black" />
               </div>
-              <Select
-                label="Category"
-                options={categoryOptions}
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              />
+              <Select label="Category" options={categoryOptions} value={category} onChange={e => setCategory(e.target.value)} />
             </CardContent>
           </Card>
 
@@ -324,23 +286,13 @@ export default function ProductEditPage() {
           </Card>
         </div>
 
-        {/* Right: visibility + codes */}
+        {/* Right */}
         <div className="flex flex-col gap-4">
           <Card>
             <CardHeader><CardTitle>Status & Tags</CardTitle></CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <Select
-                label="Status"
-                options={statusOptions}
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              />
-              <Select
-                label="Custom Tag"
-                options={tagOptions}
-                value={customTag}
-                onChange={(e) => setCustomTag(e.target.value)}
-              />
+              <Select label="Status" options={statusOptions} value={status} onChange={e => setStatus(e.target.value)} />
+              <Select label="Custom Tag" options={tagOptions} value={customTag} onChange={e => setCustomTag(e.target.value)} />
             </CardContent>
           </Card>
 
@@ -387,7 +339,6 @@ export default function ProductEditPage() {
         </div>
       </div>
 
-      {/* Delete confirm modal */}
       <Dialog
         open={deleteModal}
         onClose={() => setDeleteModal(false)}
@@ -397,6 +348,6 @@ export default function ProductEditPage() {
         confirmVariant="destructive"
         onConfirm={handleDelete}
       />
-    </div>
+    </form>
   );
 }

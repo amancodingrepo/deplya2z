@@ -53,6 +53,16 @@ export default function StoreInventoryPage() {
         title="Inventory"
         description={`Stock levels at ${user?.location_name ?? user?.location_code ?? 'your store'}${loading ? ' · Loading…' : ''}`}
         breadcrumb={[{ label: 'Dashboard', href: '/st/dashboard' }, { label: 'Inventory' }]}
+        actions={
+          <div className="flex gap-2">
+            <Link href="/st/reports">
+              <Button variant="outline" size="sm">Reports</Button>
+            </Link>
+            <Link href="/st/orders/create">
+              <Button size="sm">Request More</Button>
+            </Link>
+          </div>
+        }
       />
 
       <div className="flex items-center gap-3">

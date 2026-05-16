@@ -107,16 +107,16 @@ export async function transitionOrder(input: {
     throw new NotFoundError('Order not found');
   }
 
-  // Authorization checks
-  if (input.target === 'confirmed' && input.actorRole !== 'superadmin') {
-    throw new AuthorizationError('Only superadmin can approve store orders');
-  }
-  if ((input.target === 'packed' || input.target === 'dispatched') && input.actorRole !== 'warehouse_manager') {
-    throw new AuthorizationError('Only warehouse manager can pack/dispatch');
-  }
-  if ((input.target === 'store_received' || input.target === 'completed') && input.actorRole !== 'store_manager') {
-    throw new AuthorizationError('Only store manager can confirm receipt');
-  }
+   // Authorization checks
+   if (input.target === 'confirmed' && input.actorRole !== 'warehouse_manager') {
+     throw new AuthorizationError('Only warehouse manager can approve store orders');
+   }
+   if ((input.target === 'packed' || input.target === 'dispatched') && input.actorRole !== 'warehouse_manager') {
+     throw new AuthorizationError('Only warehouse manager can pack/dispatch');
+   }
+   if ((input.target === 'store_received' || input.target === 'completed') && input.actorRole !== 'store_manager') {
+     throw new AuthorizationError('Only store manager can confirm receipt');
+   }
 
   // State machine validation
   const allowed: Record<string, string[]> = {
@@ -136,19 +136,19 @@ export async function transitionOrder(input: {
     );
   }
 
-  // Location scope validation
-  if (input.target === 'packed' || input.target === 'dispatched') {
-    const actorLocation = input.actorLocationId ? await findLocationByCode(input.actorLocationId) : null;
-    if (!actorLocation || order.warehouse_id !== actorLocation.id) {
-      throw new AuthorizationError('Warehouse scope violation', 'WAREHOUSE_SCOPE_VIOLATION');
-    }
-  }
-  if (input.target === 'store_received' || input.target === 'completed') {
-    const actorLocation = input.actorLocationId ? await findLocationByCode(input.actorLocationId) : null;
-    if (!actorLocation || order.store_id !== actorLocation.id) {
-      throw new AuthorizationError('Store scope violation', 'STORE_SCOPE_VIOLATION');
-    }
-  }
+   // Location scope validation
+   if (input.target === 'confirmed' || input.target === 'packed' || input.target === 'dispatched') {
+     const actorLocation = input.actorLocationId ? await findLocationByCode(input.actorLocationId) : null;
+     if (!actorLocation || order.warehouse_id !== actorLocation.id) {
+       throw new AuthorizationError('Warehouse scope violation', 'WAREHOUSE_SCOPE_VIOLATION');
+     }
+   }
+   if (input.target === 'store_received' || input.target === 'completed') {
+     const actorLocation = input.actorLocationId ? await findLocationByCode(input.actorLocationId) : null;
+     if (!actorLocation || order.store_id !== actorLocation.id) {
+       throw new AuthorizationError('Store scope violation', 'STORE_SCOPE_VIOLATION');
+     }
+   }
 
   // Handle inventory operations based on status transition
   if (input.target === 'confirmed') {

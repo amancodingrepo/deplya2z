@@ -98,7 +98,7 @@ const createTransferSchema = z.object({
   notes: z.string().optional(),
 });
 
-// POST /transfers — warehouse_manager only
+// POST /transfers — warehouse_manager only (initiate transfers FROM their warehouse)
 transfersRouter.post('/', rolesAllowed(['warehouse_manager']), async (req, res, next) => {
   try {
     const parsed = createTransferSchema.safeParse(req.body);
