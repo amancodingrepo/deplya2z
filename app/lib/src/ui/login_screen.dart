@@ -301,15 +301,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           dark: true,
                         ),
 
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 20),
 
-                      Text(
-                        'admin@ · warehouse@ · store@yourcompany.com',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.white.withValues(alpha: 0.4),
-                        ),
+                      // ── Quick-login chips ────────────────────────
+                      _QuickLoginPanel(
+                        onSelect: (email, password, role) => setState(() {
+                          _emailController.text = email;
+                          _passwordController.text = password;
+                          _selectedRole = role;
+                        }),
                       ),
                     ],
                   ),
@@ -409,6 +409,114 @@ class _RoleSelector extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quick-login credential chips (tap to auto-fill)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _QuickLoginPanel extends StatelessWidget {
+  const _QuickLoginPanel({required this.onSelect});
+
+  final void Function(String email, String password, UserRole role) onSelect;
+
+  static const _accounts = [
+    (
+      label: 'Admin',
+      email: 'admin@yourcompany.com',
+      password: 'Admin@123456',
+      role: UserRole.superadmin,
+      icon: Icons.admin_panel_settings_rounded,
+    ),
+    (
+      label: 'Warehouse',
+      email: 'warehouse@yourcompany.com',
+      password: 'Warehouse@123',
+      role: UserRole.warehouseManager,
+      icon: Icons.warehouse_rounded,
+    ),
+    (
+      label: 'Store',
+      email: 'store@yourcompany.com',
+      password: 'Store@123',
+      role: UserRole.storeManager,
+      icon: Icons.store_rounded,
+    ),
+    (
+      label: 'Staff',
+      email: 'staff@yourcompany.com',
+      password: 'Staff@123',
+      role: UserRole.staff,
+      icon: Icons.badge_rounded,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          'Quick Login',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: Colors.white.withValues(alpha: 0.45),
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: _accounts.map((acc) {
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                child: GestureDetector(
+                  onTap: () => onSelect(acc.email, acc.password, acc.role),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(
+                          acc.icon,
+                          size: 16,
+                          color: Colors.white.withValues(alpha: 0.7),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          acc.label,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.75),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          acc.password,
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: Colors.white.withValues(alpha: 0.45),
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 }
