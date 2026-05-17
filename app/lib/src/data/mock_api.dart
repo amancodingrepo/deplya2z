@@ -371,54 +371,64 @@ class MockApi {
 
   Future<List<StoreOrder>> fetchOrders(UserSession session) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
+      // /orders returns {success, data:[...], meta:{...}}
+      final response = await _dio.get<dynamic>(
         '/orders',
         queryParameters: {'limit': 100},
         options: _authOptions(session.token),
       );
-      final body = response.data ?? <String, dynamic>{};
-      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      final rows = _asListPayload(response.data);
       return rows.map((row) {
         final json = Map<String, dynamic>.from(row as Map);
-        final status = OrderStatus.values.firstWhere(
-          (s) => s.name == (json['status'] as String).replaceAll('_', ''),
-          orElse: () {
-            final raw = json['status'] as String;
-            if (raw == 'store_received') return OrderStatus.storeReceived;
-            return OrderStatus.draft;
-          },
-        );
+
+        // Backend sends snake_case: 'store_received'. Map to enum name 'storeReceived'.
+        final rawStatus = (json['status'] as String?) ?? 'draft';
+        final status = _parseOrderStatus(rawStatus);
 
         final items = (json['items'] as List<dynamic>? ?? const <dynamic>[])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .map(
               (it) => OrderItem(
-                productId: it['product_id'] as String,
-                title:
-                    (it['title'] ?? it['product_id'] ?? 'Unknown Item')
-                        as String,
+                productId: (it['product_id'] ?? '') as String,
+                title: (it['title'] ?? it['product_id'] ?? 'Unknown') as String,
                 sku: (it['sku'] ?? 'NA') as String,
-                quantity: (it['qty'] as num).toInt(),
+                // qty may come as int or num
+                quantity: ((it['qty'] ?? it['quantity'] ?? 0) as num).toInt(),
               ),
             )
             .toList();
 
         return StoreOrder(
-          id: json['id'] as String,
-          orderId: json['order_id'] as String,
-          storeId: json['store_id'] as String,
-          warehouseId: json['warehouse_id'] as String,
+          id: (json['id'] ?? '') as String,
+          orderId: (json['order_id'] ?? '') as String,
+          // store_id / warehouse_id are UUIDs; warehouse_id is null on draft orders
+          storeId: (json['store_id'] as String?) ?? '',
+          warehouseId: (json['warehouse_id'] as String?) ?? '',
           status: status,
           items: items,
           reservedAmount: items.fold<int>(0, (sum, i) => sum + i.quantity),
-          createdAt: DateTime.parse(json['created_at'] as String),
-          updatedAt: DateTime.parse(json['updated_at'] as String),
+          createdAt: DateTime.tryParse((json['created_at'] as String?) ?? '') ?? DateTime.now(),
+          updatedAt: DateTime.tryParse((json['updated_at'] as String?) ?? '') ?? DateTime.now(),
           syncStatus: SyncStatus.synced,
         );
       }).toList();
     } catch (error) {
       throw Exception(_errorMessage(error));
     }
+  }
+
+  /// Maps backend snake_case status strings to [OrderStatus] enum values.
+  static OrderStatus _parseOrderStatus(String raw) {
+    return switch (raw) {
+      'draft'          => OrderStatus.draft,
+      'confirmed'      => OrderStatus.confirmed,
+      'packed'         => OrderStatus.packed,
+      'dispatched'     => OrderStatus.dispatched,
+      'store_received' => OrderStatus.storeReceived,
+      'completed'      => OrderStatus.completed,
+      'cancelled'      => OrderStatus.cancelled,
+      _                => OrderStatus.draft,
+    };
   }
 
   Future<void> syncAction(SyncAction action, UserSession session) async {
@@ -567,13 +577,13 @@ class MockApi {
 
   Future<List<EmployeeUser>> fetchUsers(String token) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
+      // /users returns a raw array [], not {data:[]}
+      final response = await _dio.get<dynamic>(
         '/users',
         queryParameters: {'limit': 200},
         options: _authOptions(token),
       );
-      final body = response.data ?? <String, dynamic>{};
-      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      final rows = _asListPayload(response.data);
       return rows
           .map(
             (row) =>
@@ -915,7 +925,8 @@ class MockApi {
     String? locationId,
   }) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
+      // /staff/members returns a raw array [], not {data:[]}
+      final response = await _dio.get<dynamic>(
         '/staff/members',
         queryParameters: {
           if (locationId != null && locationId.isNotEmpty)
@@ -924,8 +935,7 @@ class MockApi {
         },
         options: _authOptions(token),
       );
-      final body = response.data ?? <String, dynamic>{};
-      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      final rows = _asListPayload(response.data);
       return rows
           .map(
             (row) =>
