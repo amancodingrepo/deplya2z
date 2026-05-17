@@ -199,15 +199,27 @@ class UserSession {
     'expiry': expiry.toIso8601String(),
   };
 
-  factory UserSession.fromJson(Map<dynamic, dynamic> json) => UserSession(
-    id: json['id'] as String,
-    name: json['name'] as String,
-    email: json['email'] as String,
-    role: UserRole.values.byName(json['role'] as String),
-    locationId: json['locationId'] as String,
-    token: json['token'] as String,
-    expiry: DateTime.parse(json['expiry'] as String),
-  );
+  factory UserSession.fromJson(Map<dynamic, dynamic> json) {
+    // Map backend snake_case role strings → Dart camelCase enum names
+    final rawRole = (json['role'] as String?) ?? 'storeManager';
+    final role = switch (rawRole) {
+      'superadmin'       => UserRole.superadmin,
+      'warehouse_manager'=> UserRole.warehouseManager,
+      'store_manager'    => UserRole.storeManager,
+      'staff'            => UserRole.staff,
+      _                  => UserRole.values.firstWhere(
+          (r) => r.name == rawRole, orElse: () => UserRole.storeManager),
+    };
+    return UserSession(
+      id: (json['id'] as String?) ?? '',
+      name: (json['name'] as String?) ?? '',
+      email: (json['email'] as String?) ?? '',
+      role: role,
+      locationId: (json['locationId'] as String?) ?? '',
+      token: (json['token'] as String?) ?? '',
+      expiry: DateTime.tryParse((json['expiry'] as String?) ?? '') ?? DateTime.now().add(const Duration(hours: 24)),
+    );
+  }
 }
 
 // ─── Orders ──────────────────────────────────────────────────────────────────
@@ -401,8 +413,9 @@ class Product {
     color: (json['color'] ?? '') as String,
     status: (json['status'] ?? 'present') as String,
     customStyle: (json['customStyle'] ?? json['custom_style'] ?? 'default') as String,
-    imageUrl: json['imageUrl'] as String?,
-    localImagePath: json['localImagePath'] as String?,
+    // Backend returns snake_case 'image_url'; local cache uses camelCase 'imageUrl'
+    imageUrl: (json['imageUrl'] ?? json['image_url']) as String?,
+    localImagePath: (json['localImagePath'] ?? json['local_image_path']) as String?,
   );
 }
 
@@ -485,13 +498,13 @@ class InventoryItem {
     availableStock: json['availableStock'] as int,
     reservedStock: json['reservedStock'] as int,
     totalStock: json['totalStock'] as int,
-    cachedAt: DateTime.parse(json['cachedAt'] as String),
+    cachedAt: DateTime.tryParse((json['cachedAt'] as String?) ?? '') ?? DateTime.now(),
     brand: (json['brand'] ?? '') as String,
     category: (json['category'] ?? '') as String,
     model: (json['model'] ?? '') as String,
     color: (json['color'] ?? '') as String,
-    imageUrl: json['imageUrl'] as String?,
-    localImagePath: json['localImagePath'] as String?,
+    imageUrl: (json['imageUrl'] ?? json['image_url']) as String?,
+    localImagePath: (json['localImagePath'] ?? json['local_image_path']) as String?,
   );
 }
 
@@ -1022,10 +1035,10 @@ class AttendanceRecord {
 
   factory AttendanceRecord.fromJson(Map<dynamic, dynamic> json) =>
       AttendanceRecord(
-        id: json['id'] as String,
-        userId: json['user_id'] as String,
+        id: (json['id'] as String?) ?? '',
+        userId: (json['user_id'] as String?) ?? '',
         userName: (json['user_name'] ?? '') as String,
-        attendanceDate: DateTime.parse(json['attendance_date'] as String),
+        attendanceDate: DateTime.tryParse((json['attendance_date'] as String?) ?? '') ?? DateTime.now(),
         status: AttendanceStatusApi.fromApi((json['status'] ?? 'present') as String),
         markedAt: DateTime.tryParse((json['marked_at'] ?? '') as String) ?? DateTime.now(),
         locationName: json['location_name'] as String?,
@@ -1057,14 +1070,14 @@ class SalaryPayoutRecord {
 
   factory SalaryPayoutRecord.fromJson(Map<dynamic, dynamic> json) =>
       SalaryPayoutRecord(
-        id: json['id'] as String,
-        userId: json['user_id'] as String,
+        id: (json['id'] as String?) ?? '',
+        userId: (json['user_id'] as String?) ?? '',
         userName: (json['user_name'] ?? '') as String,
         monthKey: (json['month_key'] ?? '') as String,
-        grossAmount: (json['gross_amount'] as num).toDouble(),
-        deductions: (json['deductions'] as num).toDouble(),
-        netAmount: (json['net_amount'] as num).toDouble(),
-        payoutDate: DateTime.parse(json['payout_date'] as String),
+        grossAmount: (json['gross_amount'] as num? ?? 0).toDouble(),
+        deductions: (json['deductions'] as num? ?? 0).toDouble(),
+        netAmount: (json['net_amount'] as num? ?? 0).toDouble(),
+        payoutDate: DateTime.tryParse((json['payout_date'] as String?) ?? '') ?? DateTime.now(),
         notes: json['notes'] as String?,
       );
 }
@@ -1093,13 +1106,13 @@ class LeaveRecord {
   final String? reason;
 
   factory LeaveRecord.fromJson(Map<dynamic, dynamic> json) => LeaveRecord(
-    id: json['id'] as String,
-    userId: json['user_id'] as String,
+    id: (json['id'] as String?) ?? '',
+    userId: (json['user_id'] as String?) ?? '',
     userName: (json['user_name'] ?? '') as String,
     leaveType: (json['leave_type'] ?? 'leave') as String,
-    startDate: DateTime.parse(json['start_date'] as String),
-    endDate: DateTime.parse(json['end_date'] as String),
-    daysCount: (json['days_count'] as num).toInt(),
+    startDate: DateTime.tryParse((json['start_date'] as String?) ?? '') ?? DateTime.now(),
+    endDate: DateTime.tryParse((json['end_date'] as String?) ?? '') ?? DateTime.now(),
+    daysCount: (json['days_count'] as num? ?? 0).toInt(),
     status: (json['status'] ?? 'pending') as String,
     reason: json['reason'] as String?,
   );
@@ -1186,7 +1199,7 @@ class BulkOrder {
             productId: it['product_id'] as String,
             title: (it['title'] ?? it['product_id'] ?? 'Unknown') as String,
             sku: (it['sku'] ?? 'NA') as String,
-            quantity: (it['qty'] as num).toInt(),
+            quantity: ((it['qty'] ?? it['quantity'] ?? 0) as num).toInt(),
           ),
         )
         .toList();
@@ -1302,7 +1315,7 @@ class StockMovement {
     sku: (json['sku'] ?? '') as String,
     title: (json['title'] ?? '') as String,
     locationId: (json['location_id'] ?? '') as String,
-    quantityChange: (json['quantity_change'] ?? json['quantity'] as num?)?.toInt() ?? 0,
+    quantityChange: ((json['quantity_change'] ?? json['quantity']) as num? ?? 0).toInt(),
     reason: (json['reason'] ?? '') as String,
     movedAt: DateTime.tryParse((json['moved_at'] ?? json['created_at'] ?? '') as String) ?? DateTime.now(),
     movedByName: (json['moved_by_name'] ?? json['user_name'] ?? 'System') as String,

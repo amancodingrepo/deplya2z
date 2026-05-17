@@ -464,15 +464,17 @@ class MockApi {
             '/staff/attendance/check-in',
             options: _authOptions(session.token, idempotencyKey: action.id),
             data: {
-              'lat': action.payload['lat'],
-              'lng': action.payload['lng'],
+              // Backend requires 'latitude'/'longitude' not 'lat'/'lng'
+              'latitude': action.payload['lat'],
+              'longitude': action.payload['lng'],
               if (action.payload['notes'] != null)
                 'notes': action.payload['notes'],
             },
           );
         case SyncActionType.checkOut:
           final attendanceId = action.entityId;
-          await _dio.post(
+          // Backend uses PATCH, not POST
+          await _dio.patch(
             '/staff/attendance/$attendanceId/check-out',
             options: _authOptions(session.token, idempotencyKey: action.id),
             data: {
@@ -615,7 +617,8 @@ class MockApi {
           'location_id': role == UserRole.superadmin ? null : locationId,
         },
       );
-      final data = _safeMap(response.data?['data']);
+      // POST /users returns the created user directly (no {data:...} wrapper)
+      final data = _safeMap(response.data);
       return EmployeeUser.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -845,16 +848,9 @@ class MockApi {
 
   Future<StaffRecordsBundle> fetchMyStaffRecords(String token) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/staff/me',
-        options: _authOptions(token),
-      );
-      final body = response.data ?? <String, dynamic>{};
-      // /staff/me returns {data: <staff_object | null>} — safe to cast as Map
-      final rawData = body['data'];
-      if (rawData is Map<String, dynamic>) {
-        return StaffRecordsBundle.fromJson(rawData);
-      }
+      // /staff/me returns a raw staff member object — no attendance bundle yet.
+      // Use fetchStaffAttendance separately for actual attendance records.
+      await _dio.get<dynamic>('/staff/me', options: _authOptions(token));
       return const StaffRecordsBundle(
         attendance: [],
         salaryPayouts: [],
@@ -1005,7 +1001,8 @@ class MockApi {
     int? year,
   }) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
+      // /staff/attendance returns a raw array []
+      final response = await _dio.get<dynamic>(
         '/staff/attendance',
         queryParameters: {
           if (staffId != null) 'staff_id': staffId,
@@ -1015,8 +1012,7 @@ class MockApi {
         },
         options: _authOptions(token),
       );
-      final body = response.data ?? <String, dynamic>{};
-      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      final rows = _asListPayload(response.data);
       return rows
           .map(
             (row) => StaffAttendanceRecord.fromJson(
@@ -1036,7 +1032,8 @@ class MockApi {
     int? year,
   }) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
+      // /staff/attendance/summary returns a raw array or raw object
+      final response = await _dio.get<dynamic>(
         '/staff/attendance/summary',
         queryParameters: {
           if (locationId != null) 'location_id': locationId,
@@ -1045,8 +1042,7 @@ class MockApi {
         },
         options: _authOptions(token),
       );
-      final body = response.data ?? <String, dynamic>{};
-      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      final rows = _asListPayload(response.data);
       return rows
           .map(
             (row) => AttendanceMonthlySummary.fromJson(
@@ -1068,7 +1064,8 @@ class MockApi {
     String? status,
   }) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
+      // /staff/tasks returns a raw array []
+      final response = await _dio.get<dynamic>(
         '/staff/tasks',
         queryParameters: {
           if (assignedToId != null) 'assigned_to_id': assignedToId,
@@ -1078,8 +1075,7 @@ class MockApi {
         },
         options: _authOptions(token),
       );
-      final body = response.data ?? <String, dynamic>{};
-      final rows = (body['data'] as List<dynamic>?) ?? <dynamic>[];
+      final rows = _asListPayload(response.data);
       return rows
           .map((row) => Task.fromJson(Map<String, dynamic>.from(row as Map)))
           .toList();
@@ -1107,7 +1103,7 @@ class MockApi {
           'title': title,
           'description': description,
           'location_id': locationId,
-          'assigned_to_id': assignedToId,
+          'assigned_to_staff_id': assignedToId, // backend field name
           'priority': priority.apiValue,
           'due_date': dueDate.toIso8601String().split('T')[0],
           if (relatedOrderId != null) 'related_order_id': relatedOrderId,
@@ -1115,7 +1111,8 @@ class MockApi {
             'related_entity_type': relatedEntityType,
         },
       );
-      final data = _safeMap(response.data?['data']);
+      // POST /staff/tasks returns the task object directly (no {data:...} wrapper)
+      final data = _safeMap(response.data);
       return Task.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1140,7 +1137,8 @@ class MockApi {
           if (completionNote != null) 'completion_note': completionNote,
         },
       );
-      final data = _safeMap(response.data?['data']);
+      // PATCH /staff/tasks/:id/start|complete returns the task object directly
+      final data = _safeMap(response.data);
       return Task.fromJson(data);
     } catch (error) {
       throw Exception(_errorMessage(error));
@@ -1160,13 +1158,13 @@ class MockApi {
 
   InventoryItem _inventoryFromApi(Map<String, dynamic> json) {
     return InventoryItem(
-      productId: json['product_id'] as String,
-      sku: json['sku'] as String,
-      title: json['title'] as String,
-      locationId: json['location_id'] as String,
-      availableStock: (json['available_stock'] as num).toInt(),
-      reservedStock: (json['reserved_stock'] as num).toInt(),
-      totalStock: (json['total_stock'] as num).toInt(),
+      productId: (json['product_id'] as String?) ?? '',
+      sku: (json['sku'] as String?) ?? '',
+      title: (json['title'] as String?) ?? '',
+      locationId: (json['location_id'] as String?) ?? '',
+      availableStock: (json['available_stock'] as num? ?? 0).toInt(),
+      reservedStock: (json['reserved_stock'] as num? ?? 0).toInt(),
+      totalStock: (json['total_stock'] as num? ?? 0).toInt(),
       cachedAt: DateTime.now(),
       brand: (json['brand'] ?? '') as String,
       category: (json['category'] ?? '') as String,
